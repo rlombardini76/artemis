@@ -26,7 +26,7 @@ London::London ()
 void
 London::ReadParameters ()
 {
-    ParmParse pp_london("london");
+    amrex::ParmParse pp_london("london");
     pp_london.get("penetration_depth", m_penetration_depth);
 
     Store_parserString(pp_london, "superconductor_function(x,y,z)", m_str_superconductor_function);
@@ -138,11 +138,13 @@ London::InitializeSuperconductorMultiFabUsingParser (
                        amrex::ParserExecutor<3> const& sc_parser,
                        const int lev)
 {
+    using namespace amrex::literals;
+
     WarpX& warpx = WarpX::GetInstance();
     const amrex::GpuArray<amrex::Real, AMREX_SPACEDIM> dx_lev = warpx.Geom(lev).CellSizeArray();
     const amrex::RealBox& real_box = warpx.Geom(lev).ProbDomain();
     amrex::IntVect iv = sc_mf->ixType().toIntVect();
-    for ( amrex::MFIter mfi(*sc_mf, TilingIfNotGPU()); mfi.isValid(); ++mfi ) {
+    for ( amrex::MFIter mfi(*sc_mf, amrex::TilingIfNotGPU()); mfi.isValid(); ++mfi ) {
         // Initialize ghost cells in addition to valid cells
 
         const amrex::Box& tb = mfi.tilebox( iv, sc_mf->nGrowVect());
