@@ -1,4 +1,4 @@
-# Copyright 2019 Axel Huebl
+# Copyright 2019-2021 Axel Huebl
 #
 # This file is part of WarpX.
 #
@@ -27,4 +27,3 @@ extraction:
     index:
       build_command:
         - $CMAKE --build build -j 2
-

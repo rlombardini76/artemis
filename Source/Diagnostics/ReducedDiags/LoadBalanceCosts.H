@@ -8,9 +8,12 @@
 #ifndef WARPX_DIAGNOSTICS_REDUCEDDIAGS_LOADBALANCECOSTS_H_
 #define WARPX_DIAGNOSTICS_REDUCEDDIAGS_LOADBALANCECOSTS_H_
 
-#include "WarpX.H"
 #include "ReducedDiags.H"
 
+#include <AMReX_Vector.H>
+
+#include <string>
+#include <vector>
 
 /**
  *  This class mainly contains a function that update the
@@ -34,11 +37,12 @@ public:
     amrex::Vector<int> m_data_string_disp;      // array of size N_procs, where to place data in IOProc
 
     /** number of data fields we save for each box
-     *  (cost, processor, level, i_low, j_low, k_low, gpu_ID [if GPU run]) */
+     *  (cost, processor, level, i_low, j_low, k_low, gpu_ID [if GPU run], num_cells, num_macro_particles
+     * note: the hostname per box is stored separately (in m_data_string) */
 #ifdef AMREX_USE_GPU
-    const int m_nDataFields = 7;
+    const int m_nDataFields = 9;
 #else
-    const int m_nDataFields = 6;
+    const int m_nDataFields = 8;
 #endif
 
     /** used to keep track of max number of boxes over all timesteps; this allows

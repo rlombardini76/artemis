@@ -4,19 +4,29 @@
  *
  * License: BSD-3-Clause-LBNL
  */
+
 #include "GuardCellManager.H"
-#include "Filter/NCIGodfreyFilter.H"
-#include "Utils/WarpXAlgorithmSelection.H"
-#include "Utils/WarpXConst.H"
-#ifdef WARPX_DIM_RZ
-#    include "FieldSolver/FiniteDifferenceSolver/FiniteDifferenceAlgorithms/CylindricalYeeAlgorithm.H"
-#else
+
+#ifndef WARPX_DIM_RZ
 #    include "FieldSolver/FiniteDifferenceSolver/FiniteDifferenceAlgorithms/CartesianYeeAlgorithm.H"
 #    include "FieldSolver/FiniteDifferenceSolver/FiniteDifferenceAlgorithms/CartesianNodalAlgorithm.H"
 #    include "FieldSolver/FiniteDifferenceSolver/FiniteDifferenceAlgorithms/CartesianCKCAlgorithm.H"
+#else
+#    include "FieldSolver/FiniteDifferenceSolver/FiniteDifferenceAlgorithms/CylindricalYeeAlgorithm.H"
 #endif
+#include "Filter/NCIGodfreyFilter.H"
+#include "Utils/TextMsg.H"
+#include "Utils/WarpXAlgorithmSelection.H"
+#include "Utils/WarpXConst.H"
+#include "Utils/WarpXUtil.H"
+
+#include <AMReX_Config.H>
+#include <AMReX_INT.H>
+#include <AMReX_Math.H>
 #include <AMReX_ParmParse.H>
-#include <AMReX.H>
+#include <AMReX_SPACE.H>
+
+#include <algorithm>
 
 using namespace amrex;
 
@@ -34,11 +44,20 @@ guardCellManager::Init (
     const int nci_corr_stencil,
     const int maxwell_solver_id,
     const int max_level,
-    const amrex::Array<amrex::Real,3> v_galilean,
-    const amrex::Array<amrex::Real,3> v_comoving,
+    const amrex::Vector<amrex::Real> v_galilean,
+    const amrex::Vector<amrex::Real> v_comoving,
     const bool safe_guard_cells,
-    const int do_electrostatic)
+    const int do_electrostatic,
+    const int do_multi_J,
+    const bool fft_do_time_averaging,
+    const bool do_pml,
+    const int do_pml_in_domain,
+    const int pml_ncell,
+    const amrex::Vector<amrex::IntVect>& ref_ratios)
 {
+#ifdef WARPX_MAG_LLG
+    amrex::ignore_unused(do_multi_J, fft_do_time_averaging);
+#endif
     // When using subcycling, the particles on the fine level perform two pushes
     // before being redistributed ; therefore, we need one extra guard cell
     // (the particles may move by 2*c*dt)
@@ -80,24 +99,32 @@ guardCellManager::Init (
     int ngJy = ngy_tmp;
     int ngJz = ngz_tmp;
 
-    // When calling the moving window (with one level of refinement),  we shift
-    // the fine grid by 2 cells ; therefore, we need at least 2 guard cells
-    // on level 1. This may not be necessary for level 0.
+    // When calling the moving window (with one level of refinement), we shift
+    // the fine grid by a number of cells equal to the ref_ratio in the moving
+    // window direction.
     if (do_moving_window) {
-        ngx = std::max(ngx,2);
-        ngy = std::max(ngy,2);
-        ngz = std::max(ngz,2);
-        ngJx = std::max(ngJx,2);
-        ngJy = std::max(ngJy,2);
-        ngJz = std::max(ngJz,2);
+        WARPX_ALWAYS_ASSERT_WITH_MESSAGE(ref_ratios.size() <= 1,
+            "The number of grow cells for the moving window currently assumes 2 levels max.");
+        const int nlevs = ref_ratios.size()+1;
+        int max_r = (nlevs > 1) ? ref_ratios[0][moving_window_dir] : 2;
+
+        ngx = std::max(ngx,max_r);
+        ngy = std::max(ngy,max_r);
+        ngz = std::max(ngz,max_r);
+        ngJx = std::max(ngJx,max_r);
+        ngJy = std::max(ngJy,max_r);
+        ngJz = std::max(ngJz,max_r);
     }
 
-#if (AMREX_SPACEDIM == 3)
+#if defined(WARPX_DIM_3D)
     ng_alloc_EB = IntVect(ngx,ngy,ngz);
     ng_alloc_J = IntVect(ngJx,ngJy,ngJz);
-#elif (AMREX_SPACEDIM == 2)
+#elif defined(WARPX_DIM_XZ) || defined(WARPX_DIM_RZ)
     ng_alloc_EB = IntVect(ngx,ngz);
     ng_alloc_J = IntVect(ngJx,ngJz);
+#elif defined(WARPX_DIM_1D_Z)
+    ng_alloc_EB = IntVect(ngz);
+    ng_alloc_J = IntVect(ngJz);
 #endif
 
     // TODO Adding one cell for rho should not be necessary, given that the number of guard cells
@@ -114,10 +141,26 @@ guardCellManager::Init (
     {
         for (int i = 0; i < AMREX_SPACEDIM; i++)
         {
-            ng_alloc_Rho[i] += static_cast<int>(std::ceil(PhysConst::c * dt / dx[i]));
-            ng_alloc_J[i]   += static_cast<int>(std::ceil(PhysConst::c * dt / dx[i] * 0.5_rt));
+            amrex::Real dt_Rho = dt;
+            amrex::Real dt_J = 0.5_rt*dt;
+            if (do_multi_J) {
+                // With multi_J + time averaging, particles can move during 2*dt per PIC cycle.
+                if (fft_do_time_averaging){
+                    dt_Rho = 2._rt*dt;
+                    dt_J = 2._rt*dt;
+                }
+                // With multi_J but without time averaging, particles can move during dt per PIC
+                // cycle for the current deposition as well.
+                else {
+                    dt_J = dt;
+                }
+            }
+            ng_alloc_Rho[i] += static_cast<int>(std::ceil(PhysConst::c * dt_Rho / dx[i]));
+            ng_alloc_J[i]   += static_cast<int>(std::ceil(PhysConst::c * dt_J / dx[i]));
         }
     }
+#else
+    amrex::ignore_unused(do_electrostatic, dt, dx);
 #endif
     // Number of guard cells for local deposition of J and rho
     ng_depos_J   = ng_alloc_J;
@@ -157,14 +200,26 @@ guardCellManager::Init (
         int ngFFt_z = (do_nodal || galilean) ? noz_fft : noz_fft / 2;
 
         ParmParse pp_psatd("psatd");
-        pp_psatd.query("nx_guard", ngFFt_x);
-        pp_psatd.query("ny_guard", ngFFt_y);
-        pp_psatd.query("nz_guard", ngFFt_z);
+        queryWithParser(pp_psatd, "nx_guard", ngFFt_x);
+        queryWithParser(pp_psatd, "ny_guard", ngFFt_y);
+        queryWithParser(pp_psatd, "nz_guard", ngFFt_z);
 
-#if (AMREX_SPACEDIM == 3)
+#if defined(WARPX_DIM_3D)
         IntVect ngFFT = IntVect(ngFFt_x, ngFFt_y, ngFFt_z);
-#elif (AMREX_SPACEDIM == 2)
+#elif defined(WARPX_DIM_XZ) || defined(WARPX_DIM_RZ)
         IntVect ngFFT = IntVect(ngFFt_x, ngFFt_z);
+#elif defined(WARPX_DIM_1D_Z)
+        IntVect ngFFT = IntVect(ngFFt_z);
+#endif
+
+#ifdef WARPX_DIM_RZ
+        if (do_pml) {
+            if (!do_pml_in_domain) {
+                ngFFT[0] = std::max(ngFFT[0], pml_ncell);
+            }
+        }
+#else
+       amrex::ignore_unused(do_pml, do_pml_in_domain, pml_ncell);
 #endif
 
         // All boxes should have the same number of guard cells, to avoid temporary parallel copies:
@@ -182,8 +237,10 @@ guardCellManager::Init (
             ng_alloc_F[i_dim] = ng_required;
             ng_alloc_Rho[i_dim] = ng_required;
             ng_alloc_F_int = ng_required;
+            ng_alloc_G_int = ng_required;
         }
         ng_alloc_F = IntVect(AMREX_D_DECL(ng_alloc_F_int, ng_alloc_F_int, ng_alloc_F_int));
+        ng_alloc_G = IntVect(AMREX_D_DECL(ng_alloc_G_int, ng_alloc_G_int, ng_alloc_G_int));
     }
 
     // Compute number of cells required for Field Solver
@@ -204,7 +261,8 @@ guardCellManager::Init (
             ng_FieldSolver  = CartesianNodalAlgorithm::GetMaxGuardCell();
             ng_FieldSolverF = CartesianNodalAlgorithm::GetMaxGuardCell();
             ng_FieldSolverG = CartesianNodalAlgorithm::GetMaxGuardCell();
-        } else if (maxwell_solver_id == MaxwellSolverAlgo::Yee) {
+        } else if (maxwell_solver_id == MaxwellSolverAlgo::Yee
+                   || maxwell_solver_id == MaxwellSolverAlgo::ECT) {
             ng_FieldSolver  = CartesianYeeAlgorithm::GetMaxGuardCell();
             ng_FieldSolverF = CartesianYeeAlgorithm::GetMaxGuardCell();
             ng_FieldSolverG = CartesianYeeAlgorithm::GetMaxGuardCell();
@@ -222,6 +280,10 @@ guardCellManager::Init (
     ng_alloc_F.max( ng_FieldSolverF );
     ng_alloc_G.max( ng_FieldSolverG );
 
+    if (do_moving_window && maxwell_solver_id == MaxwellSolverAlgo::PSATD) {
+        ng_afterPushPSATD = ng_alloc_EB;
+    }
+
     if (safe_guard_cells){
         // Run in safe mode: exchange all allocated guard cells at each
         // call of FillBoundary
@@ -230,6 +292,7 @@ guardCellManager::Init (
         ng_FieldSolverG = ng_alloc_G;
         ng_FieldGather = ng_alloc_EB;
         ng_UpdateAux = ng_alloc_EB;
+        ng_afterPushPSATD = ng_alloc_EB;
         if (do_moving_window){
             ng_MovingWindow = ng_alloc_EB;
         }
@@ -241,7 +304,7 @@ guardCellManager::Init (
         // If NCI filter, add guard cells in the z direction
         IntVect ng_NCIFilter = IntVect::TheZeroVector();
         if (do_fdtd_nci_corr)
-            ng_NCIFilter[AMREX_SPACEDIM-1] = NCIGodfreyFilter::m_stencil_width;
+            ng_NCIFilter[WARPX_ZINDEX] = NCIGodfreyFilter::m_stencil_width;
         // Note: communications of guard cells for bilinear filter are handled
         // separately.
         ng_FieldGather = ng_FieldGather_noNCI + ng_NCIFilter;

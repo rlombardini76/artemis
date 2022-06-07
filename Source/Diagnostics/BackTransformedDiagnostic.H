@@ -8,17 +8,24 @@
 #ifndef WARPX_BackTransformedDiagnostic_H_
 #define WARPX_BackTransformedDiagnostic_H_
 
-#include "Particles/MultiParticleContainer.H"
-#include "Utils/WarpXConst.H"
+#include "BackTransformedDiagnostic_fwd.H"
 
-#include <AMReX_Geometry.H>
-#include <AMReX_ParallelDescriptor.H>
-#include <AMReX_PlotFileUtil.H>
-#include <AMReX_VisMF.H>
+#include "Particles/MultiParticleContainer.H"
+#include "Particles/WarpXParticleContainer.H"
+
+#include <AMReX_Box.H>
+#include <AMReX_IntVect.H>
+#include <AMReX_MultiFab.H>
+#include <AMReX_REAL.H>
+#include <AMReX_RealBox.H>
+#include <AMReX_Vector.H>
+
+#include <AMReX_BaseFwd.H>
 
 #include <map>
+#include <memory>
+#include <string>
 #include <vector>
-
 
 /** \brief
  * The capability for back-transformed lab-frame data is implemented to generate
@@ -60,7 +67,6 @@ class LabFrameDiag {
     std::vector<std::string> m_mesh_field_names_;
 
     int m_file_num;
-    int m_initial_i;
 
     // For back-transformed diagnostics of grid fields, data_buffer_
     // stores a buffer of the fields in the lab frame (in a MultiFab, i.e.
@@ -180,18 +186,18 @@ class BackTransformedDiagnostic {
 
 public:
 
-    BackTransformedDiagnostic(amrex::Real zmin_lab, amrex::Real zmax_lab,
-                           amrex::Real v_window_lab, amrex::Real dt_snapshots_lab,
-                           int N_snapshots, amrex::Real dt_slice_snapshots_lab,
-                           int N_slice_snapshots, amrex::Real gamma_boost,
-                           amrex::Real t_boost, amrex::Real dt_boost,
-                           int boost_direction, const amrex::Geometry& geom,
-                           amrex::RealBox& slice_realbox,
-                           amrex::Real particle_slice_width_lab);
+    BackTransformedDiagnostic (amrex::Real zmin_lab, amrex::Real zmax_lab,
+                               amrex::Real v_window_lab, amrex::Real dt_snapshots_lab,
+                               int N_snapshots, amrex::Real dt_slice_snapshots_lab,
+                               int N_slice_snapshots, amrex::Real gamma_boost,
+                               amrex::Real t_boost, amrex::Real dt_boost,
+                               int boost_direction, const amrex::Geometry& geom,
+                               amrex::RealBox& slice_realbox,
+                               amrex::Real particle_slice_width_lab);
 
     /// Flush() is called at the end of the simulation when the buffers that contain
     /// back-transformed lab-frame data even if they are not full.
-    void Flush(const amrex::Geometry& geom);
+    void Flush (const amrex::Geometry& geom);
 
     /** \brief
      * The order of operations performed in writeLabFrameData is as follows :
@@ -215,12 +221,12 @@ public:
      *    and lorentz-transformed to the lab-frame and copied to the full
      *    and reduce diagnostic and stored in particle_buffer.
      */
-    void writeLabFrameData(const amrex::MultiFab* cell_centered_data,
-                           const MultiParticleContainer& mypc,
-                           const amrex::Geometry& geom,
-                           const amrex::Real t_boost, const amrex::Real dt);
+    void writeLabFrameData (const amrex::MultiFab* cell_centered_data,
+                            const MultiParticleContainer& mypc,
+                            const amrex::Geometry& geom,
+                            const amrex::Real t_boost, const amrex::Real dt);
     /// The metadata containg information on t_boost, num_snapshots, and Lorentz parameters.
-    void writeMetaData();
+    void writeMetaData ();
 
 private:
     amrex::Real m_gamma_boost_;
@@ -242,7 +248,7 @@ private:
 
     std::vector<std::unique_ptr<LabFrameDiag> > m_LabFrameDiags_;
 
-    void writeParticleData(
+    void writeParticleData (
          const WarpXParticleContainer::DiagnosticParticleData& pdata,
          const std::string& name, const int i_lab);
 
@@ -271,8 +277,8 @@ private:
     // Name of fields to dump. By default, all fields in cell_centered_data.
     // Needed for file headers only.
     std::vector<std::string> m_mesh_field_names = {"Ex", "Ey", "Ez",
-                                                 "Bx", "By", "Bz",
-                                                 "jx", "jy", "jz", "rho"};
+                                                   "Bx", "By", "Bz",
+                                                   "jx", "jy", "jz", "rho"};
     int m_ncomp_to_dump = 10;
 
 

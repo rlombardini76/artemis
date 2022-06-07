@@ -23,9 +23,13 @@ amr.n_cell = 2688 3712
 # simulation box, no MR
 #   note: increase z (space & cells) for converging ion energy
 amr.max_level = 0
+geometry.dims = 2
 geometry.prob_lo = -7.5e-6 -5.e-6
 geometry.prob_hi =  7.5e-6 25.e-6
-geometry.is_periodic = 0 0  # non-periodic (default)
+
+# Boundary condition
+boundary.field_lo = pml pml
+boundary.field_hi = pml pml
 
 # Order of particle shape factors
 algo.particle_shape = 3
@@ -60,7 +64,7 @@ warpx.numprocs = 1 2   # 2 MPI ranks
 #   The grid & block parameters above are needed for load balancing:
 #   an average of ~10 grids per MPI rank (and device) are a good granularity
 #   to allow efficient load-balancing as the simulation evolves
-algo.load_balance_intervals = 10
+algo.load_balance_intervals = 100
 algo.load_balance_costs_update = Heuristic
 
 # particle bin-sorting on GPU (ideal defaults not investigated in 2D)
@@ -78,13 +82,13 @@ particles.species_names = electrons hydrogen
 hydrogen.species_type = hydrogen
 hydrogen.injection_style = NUniformPerCell
 hydrogen.num_particles_per_cell_each_dim = 2 2 4
-hydrogen.momentum_distribution_type = constant
-hydrogen.ux = 0.0
-hydrogen.uy = 0.0
-hydrogen.uz = 0.0
+hydrogen.momentum_distribution_type = at_rest
 #hydrogen.zmin = -10.0e-6
 #hydrogen.zmax =  10.0e-6
 hydrogen.profile = parse_density_function
+hydrogen.addRealAttributes = orig_x orig_z
+hydrogen.attribute.orig_x(x,y,z,ux,uy,uz,t) = "x"
+hydrogen.attribute.orig_z(x,y,z,ux,uy,uz,t) = "z"
 
 electrons.species_type = electron
 electrons.injection_style = NUniformPerCell
@@ -227,7 +231,7 @@ openPMDbw.hydrogen.plot_filter_function(t,x,y,z,ux,uy,uz) = (uz<0)
 # histograms with 2.0 degree acceptance angle in fw direction
 # 2 deg * pi / 180 : 0.03490658503 rad
 # half-angle +/-   : 0.017453292515 rad
-warpx.reduced_diags_names                   = histuH histue histuzAll
+warpx.reduced_diags_names                   = histuH histue histuzAll FieldProbe_Z FieldProbe_ScatPoint FieldProbe_ScatLine LBC
 
 histuH.type                                 = ParticleHistogram
 histuH.intervals                            = 100
@@ -236,8 +240,8 @@ histuH.species                              = hydrogen
 histuH.bin_number                           = 1000
 histuH.bin_min                              =  0.0
 histuH.bin_max                              = 35.0
-histuH.histogram_function(t,x,y,z,ux,uy,uz) = "sqrt(ux*ux+uy*uy+uz*uz)"
-histuH.filter_function(t,x,y,z,ux,uy,uz) = "abs(acos(uz / sqrt(ux*ux+uy*uy+uz*uz))) <= 0.017453"
+histuH.histogram_function(t,x,y,z,ux,uy,uz) = "u2=ux*ux+uy*uy+uz*uz; if(u2>0, sqrt(u2), 0.0)"
+histuH.filter_function(t,x,y,z,ux,uy,uz) = "u2=ux*ux+uy*uy+uz*uz; if(u2>0, abs(acos(uz / sqrt(u2))) <= 0.017453, 0)"
 
 histue.type                                 = ParticleHistogram
 histue.intervals                            = 100
@@ -246,8 +250,8 @@ histue.species                              = electrons
 histue.bin_number                           = 1000
 histue.bin_min                              = 0.0
 histue.bin_max                              = 0.1
-histue.histogram_function(t,x,y,z,ux,uy,uz) = "sqrt(ux*ux+uy*uy+uz*uz)"
-histue.filter_function(t,x,y,z,ux,uy,uz) = "abs(acos(uz / sqrt(ux*ux+uy*uy+uz*uz))) <= 0.017453"
+histue.histogram_function(t,x,y,z,ux,uy,uz) = "u2=ux*ux+uy*uy+uz*uz; if(u2>0, sqrt(u2), 0.0)"
+histue.filter_function(t,x,y,z,ux,uy,uz) = "u2=ux*ux+uy*uy+uz*uz; if(u2>0, abs(acos(uz / sqrt(u2))) <= 0.017453, 0)"
 
 # just a test entry to make sure that the histogram filter is purely optional:
 # this one just records uz of all hydrogen ions, independent of their pointing
@@ -260,6 +264,36 @@ histuzAll.bin_min                              = -35.0
 histuzAll.bin_max                              =  35.0
 histuzAll.histogram_function(t,x,y,z,ux,uy,uz) = "uz"
 
+FieldProbe_Z.type = FieldProbe
+FieldProbe_Z.intervals = 100
+FieldProbe_Z.integrate = 0
+FieldProbe_Z.probe_geometry = Line
+FieldProbe_Z.x_probe = 0.0
+FieldProbe_Z.z_probe = -5.0e-6
+FieldProbe_Z.x1_probe = 0.0
+FieldProbe_Z.z1_probe = 25.0e-6
+FieldProbe_Z.resolution = 3712
+
+FieldProbe_ScatPoint.type = FieldProbe
+FieldProbe_ScatPoint.intervals = 1
+FieldProbe_ScatPoint.integrate = 0
+FieldProbe_ScatPoint.probe_geometry = Point
+FieldProbe_ScatPoint.x_probe = 0.0
+FieldProbe_ScatPoint.z_probe = 15e-6
+
+FieldProbe_ScatLine.type = FieldProbe
+FieldProbe_ScatLine.intervals = 100
+FieldProbe_ScatLine.integrate = 1
+FieldProbe_ScatLine.probe_geometry = Line
+FieldProbe_ScatLine.x_probe = -2.5e-6
+FieldProbe_ScatLine.z_probe = 15e-6
+FieldProbe_ScatLine.x1_probe = 2.5e-6
+FieldProbe_ScatLine.z1_probe = 15e-6
+FieldProbe_ScatLine.resolution = 201
+
+# check computational load per box
+LBC.type = LoadBalanceCosts
+LBC.intervals = 100
 
 #################################
 # Physical Background

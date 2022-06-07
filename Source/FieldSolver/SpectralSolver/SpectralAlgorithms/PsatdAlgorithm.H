@@ -7,7 +7,18 @@
 #ifndef WARPX_PSATD_ALGORITHM_H_
 #define WARPX_PSATD_ALGORITHM_H_
 
+#include "FieldSolver/SpectralSolver/SpectralFieldData.H"
+#include "FieldSolver/SpectralSolver/SpectralKSpace.H"
 #include "SpectralBaseAlgorithm.H"
+
+#include <AMReX_Array.H>
+#include <AMReX_Config.H>
+#include <AMReX_REAL.H>
+
+#include <AMReX_BaseFwd.H>
+
+#include <array>
+#include <memory>
 
 #if WARPX_USE_PSATD
 /* \brief Class that updates the field in spectral space
@@ -22,26 +33,34 @@ class PsatdAlgorithm : public SpectralBaseAlgorithm
          *
          * \param[in] spectral_kspace spectral space
          * \param[in] dm distribution mapping
+         * \param[in] spectral_index object containing indices to access data in spectral space
          * \param[in] norder_x order of the spectral solver along x
          * \param[in] norder_y order of the spectral solver along y
          * \param[in] norder_z order of the spectral solver along z
          * \param[in] nodal whether the E and B fields are defined on a fully nodal grid or a Yee grid
+         * \param[in] fill_guards Update the guard cells (in addition to the valid cells) when pushing the fields in time
          * \param[in] v_galilean Galilean velocity (three-dimensional array)
          * \param[in] dt time step of the simulation
          * \param[in] update_with_rho whether the update equation for E uses rho or not
          * \param[in] time_averaging whether to use time averaging for large time steps
+         * \param[in] dive_cleaning Update F as part of the field update, so that errors in divE=rho propagate away at the speed of light
+         * \param[in] divb_cleaning Update G as part of the field update, so that errors in divB=0 propagate away at the speed of light
          */
         PsatdAlgorithm (
             const SpectralKSpace& spectral_kspace,
             const amrex::DistributionMapping& dm,
+            const SpectralFieldIndex& spectral_index,
             const int norder_x,
             const int norder_y,
             const int norder_z,
             const bool nodal,
-            const amrex::Array<amrex::Real,3>& v_galilean,
+            const amrex::IntVect& fill_guards,
+            const amrex::Vector<amrex::Real>& v_galilean,
             const amrex::Real dt,
             const bool update_with_rho,
-            const bool time_averaging);
+            const bool time_averaging,
+            const bool dive_cleaning,
+            const bool divb_cleaning);
 
         /**
          * \brief Updates the E and B fields in spectral space, according to the relevant PSATD equations
@@ -49,18 +68,6 @@ class PsatdAlgorithm : public SpectralBaseAlgorithm
          * \param[in,out] f all the fields in spectral space
          */
         virtual void pushSpectralFields (SpectralFieldData& f) const override final;
-
-        /**
-         * \brief Returns the number of fields stored in spectral space
-         */
-        virtual int getRequiredNumberOfFields () const override final
-        {
-            if (m_time_averaging) {
-                return SpectralAvgFieldIndex::n_fields;
-            } else {
-                return SpectralFieldIndex::n_fields;
-            }
-        }
 
         /**
          * \brief Initializes the coefficients used in \c pushSpectralFields to update the E and B fields
@@ -95,15 +102,8 @@ class PsatdAlgorithm : public SpectralBaseAlgorithm
          * derived classes.
          *
          * \param[in,out] field_data All fields in Fourier space
-         * \param[in,out] current    Array of unique pointers to \c MultiFab storing
-         *                           the three components of the current density
-         * \param[in]     rho        Unique pointer to \c MultiFab storing the charge density
          */
-        virtual void CurrentCorrection (
-            const int lev,
-            SpectralFieldData& field_data,
-            std::array<std::unique_ptr<amrex::MultiFab>,3>& current,
-            const std::unique_ptr<amrex::MultiFab>& rho) override final;
+        virtual void CurrentCorrection (SpectralFieldData& field_data) override final;
 
         /**
          * \brief Virtual function for Vay current deposition in Fourier space
@@ -113,13 +113,8 @@ class PsatdAlgorithm : public SpectralBaseAlgorithm
          * derived classes.
          *
          * \param[in,out] field_data All fields in Fourier space
-         * \param[in,out] current    Array of unique pointers to \c MultiFab storing
-         *                           the three components of the current density
          */
-        virtual void VayDeposition (
-            const int lev,
-            SpectralFieldData& field_data,
-            std::array<std::unique_ptr<amrex::MultiFab>,3>& current) override final;
+        virtual void VayDeposition (SpectralFieldData& field_data) override final;
 
     private:
 
@@ -130,18 +125,22 @@ class PsatdAlgorithm : public SpectralBaseAlgorithm
         // These real and complex coefficients are allocated only with averaged Galilean PSATD
         SpectralComplexCoefficients Psi1_coef, Psi2_coef, Y1_coef, Y2_coef, Y3_coef, Y4_coef;
 
+        SpectralFieldIndex m_spectral_index;
+
         // Centered modified finite-order k vectors
         KVectorComponent modified_kx_vec_centered;
-#if (AMREX_SPACEDIM==3)
+#if defined(WARPX_DIM_3D)
         KVectorComponent modified_ky_vec_centered;
 #endif
         KVectorComponent modified_kz_vec_centered;
 
         // Other member variables
-        amrex::Array<amrex::Real,3> m_v_galilean;
+        amrex::Vector<amrex::Real> m_v_galilean;
         amrex::Real m_dt;
         bool m_update_with_rho;
         bool m_time_averaging;
+        bool m_dive_cleaning;
+        bool m_divb_cleaning;
         bool m_is_galilean;
 };
 #endif // WARPX_USE_PSATD

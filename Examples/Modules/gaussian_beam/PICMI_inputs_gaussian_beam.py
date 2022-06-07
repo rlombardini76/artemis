@@ -1,5 +1,16 @@
-from pywarpx import picmi
+#!/usr/bin/env python3
+
 #from warp import picmi
+import argparse
+
+from pywarpx import picmi
+
+parser = argparse.ArgumentParser(description="Gaussian beam PICMI example")
+
+parser.add_argument('--diagformat', type=str,
+                    help='Format of the full diagnostics (plotfile, openpmd, ascent, sensei, ...)',
+                    default='plotfile')
+args = parser.parse_args()
 
 constants = picmi.constants
 
@@ -27,6 +38,8 @@ grid = picmi.Cartesian3DGrid(number_of_cells = [nx, ny, nz],
                              upper_bound = [xmax, ymax, zmax],
                              lower_boundary_conditions = ['periodic', 'periodic', 'open'],
                              upper_boundary_conditions = ['periodic', 'periodic', 'open'],
+                             lower_boundary_conditions_particles = ['periodic', 'periodic', 'absorbing'],
+                             upper_boundary_conditions_particles = ['periodic', 'periodic', 'absorbing'],
                              warpx_max_grid_size=16)
 
 solver = picmi.ElectromagneticSolver(grid = grid,
@@ -47,18 +60,21 @@ field_diag1 = picmi.FieldDiagnostic(name = 'diag1',
                                     grid = grid,
                                     period = 10,
                                     data_list = ['E', 'B', 'J', 'part_per_cell'],
+                                    warpx_format = args.diagformat,
                                     write_dir = '.',
                                     warpx_file_prefix = 'Python_gaussian_beam_plt')
 
 part_diag1 = picmi.ParticleDiagnostic(name = 'diag1',
                                       period = 10,
                                       species = [electrons, protons],
-                                      data_list = ['weighting', 'momentum'])
+                                      data_list = ['weighting', 'momentum'],
+                                      warpx_format = args.diagformat)
 
 sim = picmi.Simulation(solver = solver,
                        max_steps = 10,
                        verbose = 1,
-                       warpx_current_deposition_algo = 'direct')
+                       warpx_current_deposition_algo = 'direct',
+                       warpx_use_filter = 0)
 
 sim.add_species(electrons, layout=picmi.PseudoRandomLayout(n_macroparticles=number_sim_particles))
 sim.add_species(protons, layout=picmi.PseudoRandomLayout(n_macroparticles=number_sim_particles))

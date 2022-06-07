@@ -4,28 +4,37 @@
  *
  * License: BSD-3-Clause-LBNL
  */
-
-#include "LoadBalanceCosts.H"
-#include "LoadBalanceEfficiency.H"
-#include "ParticleHistogram.H"
-#include "BeamRelevant.H"
-#include "ParticleEnergy.H"
-#include "ParticleExtrema.H"
-#include "FieldEnergy.H"
-#include "FieldMaximum.H"
-#include "RhoMaximum.H"
-#include "ParticleNumber.H"
-#include "FieldReduction.H"
 #include "MultiReducedDiags.H"
 
-#include <AMReX_ParmParse.H>
-#include <AMReX_ParallelDescriptor.H>
+#include "BeamRelevant.H"
+#include "FieldEnergy.H"
+#include "FieldMaximum.H"
+#include "FieldProbe.H"
+#include "FieldMomentum.H"
+#include "FieldReduction.H"
+#include "LoadBalanceCosts.H"
+#include "LoadBalanceEfficiency.H"
+#include "ParticleEnergy.H"
+#include "ParticleExtrema.H"
+#include "ParticleHistogram.H"
+#include "ParticleMomentum.H"
+#include "ParticleNumber.H"
+#include "RhoMaximum.H"
+#include "RawEFieldReduction.H"
+#include "RawBFieldReduction.H"
+#include "Utils/IntervalsParser.H"
+#include "Utils/TextMsg.H"
+#include "Utils/WarpXProfilerWrapper.H"
 
-#include <fstream>
-#include <map>
+#include <AMReX.H>
+#include <AMReX_ParallelDescriptor.H>
+#include <AMReX_ParmParse.H>
+#include <AMReX_REAL.H>
+
 #include <algorithm>
 #include <functional>
 #include <iterator>
+#include <map>
 
 using namespace amrex;
 
@@ -43,8 +52,11 @@ MultiReducedDiags::MultiReducedDiags ()
     const auto reduced_diags_dictionary =
         std::map<std::string, std::function<std::unique_ptr<ReducedDiags>(CS)>>{
             {"ParticleEnergy",        [](CS s){return std::make_unique<ParticleEnergy>(s);}},
+            {"ParticleMomentum",      [](CS s){return std::make_unique<ParticleMomentum>(s);}},
             {"FieldEnergy",           [](CS s){return std::make_unique<FieldEnergy>(s);}},
+            {"FieldMomentum",         [](CS s){return std::make_unique<FieldMomentum>(s);}},
             {"FieldMaximum",          [](CS s){return std::make_unique<FieldMaximum>(s);}},
+            {"FieldProbe",            [](CS s){return std::make_unique<FieldProbe>(s);}},
             {"FieldReduction",        [](CS s){return std::make_unique<FieldReduction>(s);}},
             {"RhoMaximum",            [](CS s){return std::make_unique<RhoMaximum>(s);}},
             {"BeamRelevant",          [](CS s){return std::make_unique<BeamRelevant>(s);}},
@@ -52,7 +64,9 @@ MultiReducedDiags::MultiReducedDiags ()
             {"LoadBalanceEfficiency", [](CS s){return std::make_unique<LoadBalanceEfficiency>(s);}},
             {"ParticleHistogram",     [](CS s){return std::make_unique<ParticleHistogram>(s);}},
             {"ParticleNumber",        [](CS s){return std::make_unique<ParticleNumber>(s);}},
-            {"ParticleExtrema",       [](CS s){return std::make_unique<ParticleExtrema>(s);}}
+            {"ParticleExtrema",       [](CS s){return std::make_unique<ParticleExtrema>(s);}},
+            {"RawEFieldReduction",    [](CS s){return std::make_unique<RawEFieldReduction>(s);}},
+            {"RawBFieldReduction",    [](CS s){return std::make_unique<RawBFieldReduction>(s);}}
         };
     // loop over all reduced diags and fill m_multi_rd with requested reduced diags
     std::transform(m_rd_names.begin(), m_rd_names.end(), std::back_inserter(m_multi_rd),
@@ -63,8 +77,10 @@ MultiReducedDiags::MultiReducedDiags ()
             std::string rd_type;
             pp_rd_name.get("type", rd_type);
 
-            if(reduced_diags_dictionary.count(rd_type) == 0)
-                Abort(rd_type + " is not a valid type for reduced diagnostic " + rd_name);
+            WARPX_ALWAYS_ASSERT_WITH_MESSAGE(
+                reduced_diags_dictionary.count(rd_type) != 0,
+                rd_type + " is not a valid type for reduced diagnostic " + rd_name
+            );
 
             return reduced_diags_dictionary.at(rd_type)(rd_name);
         });
@@ -72,9 +88,28 @@ MultiReducedDiags::MultiReducedDiags ()
 }
 // end constructor
 
+void MultiReducedDiags::InitData ()
+{
+    // loop over all reduced diags
+    for (int i_rd = 0; i_rd < static_cast<int>(m_rd_names.size()); ++i_rd)
+    {
+        m_multi_rd[i_rd] -> InitData();
+    }
+}
+
+void MultiReducedDiags::LoadBalance () {
+    // loop over all reduced diags
+    for (int i_rd = 0; i_rd < static_cast<int>(m_rd_names.size()); ++i_rd)
+    {
+        m_multi_rd[i_rd] -> LoadBalance();
+    }
+}
+
 // call functions to compute diags
 void MultiReducedDiags::ComputeDiags (int step)
 {
+    WARPX_PROFILE("MultiReducedDiags::ComputeDiags()");
+
     // loop over all reduced diags
     for (int i_rd = 0; i_rd < static_cast<int>(m_rd_names.size()); ++i_rd)
     {

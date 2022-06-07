@@ -7,11 +7,15 @@
 #ifndef KERNELTIMER_H_
 #define KERNELTIMER_H_
 
+#include "Utils/TextMsg.H"
 #include "WarpX.H"
+
+#include <AMReX.H>
+#include <AMReX_REAL.H>
 
 // #ifdef WARPX_USE_GPUCLOCK
 
-#include <limits.h>
+#include <climits>
 
 /**
  * \brief Defines a timer object to be used on GPU; measures summed thread cycles.
@@ -28,28 +32,31 @@ public:
     KernelTimer
 #if (defined AMREX_USE_GPU)
     (const bool do_timing, amrex::Real* cost)
-        : m_do_timing(do_timing), m_cost(cost)
+        : m_do_timing(do_timing)
 #else
-    (const bool, amrex::Real*)
+    (const bool do_timing, amrex::Real* cost)
 #endif
     {
 #if (defined AMREX_USE_GPU)
 #   if (defined WARPX_USE_GPUCLOCK)
-        if (do_timing && cost) {
+        if (m_do_timing && cost) {
+            m_cost = cost;
 #       if defined(AMREX_USE_CUDA) || defined(AMREX_USE_HIP)
             // Start the timer
             m_wt = clock64();
 
 #       elif defined(AMREX_USE_DPCPP)
             // To be updated
-            AMREX_ALWAYS_ASSERT_WITH_MESSAGE( do_timing == false,
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE( m_do_timing == false,
                                               "KernelTimer not yet supported for this hardware." );
 #       endif
         }
 #   else // WARPX_USE_GPUCLOCK
-        AMREX_ALWAYS_ASSERT_WITH_MESSAGE( do_timing == false,
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE( m_do_timing == false,
                                           "`algo.load_balance_costs_update = gpuclock` requires to compile with `-DWarpX_GPUCLOCK=ON`.");
 #   endif // WARPX_USE_GPUCLOCK
+#else  // AMREX_USE_GPU
+        amrex::ignore_unused(do_timing, cost);
 #endif // AMREX_USE_GPU
     }
 
@@ -74,7 +81,7 @@ private:
     bool m_do_timing;
 
     //! Location in which to accumulate costs from all threads.
-    amrex::Real* m_cost;
+    amrex::Real* m_cost = nullptr;
 
     //! Store the time difference (cost) from a single thread.
     long long int m_wt;

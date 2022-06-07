@@ -6,8 +6,21 @@
  */
 
 #include "FieldReduction.H"
-#include "WarpX.H"
+
+#include "Utils/IntervalsParser.H"
+#include "Utils/TextMsg.H"
 #include "Utils/WarpXAlgorithmSelection.H"
+#include "Utils/WarpXUtil.H"
+
+#include <AMReX_Algorithm.H>
+#include <AMReX_BLassert.H>
+#include <AMReX_ParmParse.H>
+#include <AMReX_Vector.H>
+
+#include <algorithm>
+#include <ostream>
+
+#include <regex>
 
 // constructor
 FieldReduction::FieldReduction (std::string rd_name)
@@ -17,7 +30,7 @@ FieldReduction::FieldReduction (std::string rd_name)
 
     // RZ coordinate is not working
 #if (defined WARPX_DIM_RZ)
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(false,
+    WARPX_ALWAYS_ASSERT_WITH_MESSAGE(false,
         "FieldReduction reduced diagnostics does not work for RZ coordinate.");
 #endif
 
@@ -25,7 +38,7 @@ FieldReduction::FieldReduction (std::string rd_name)
     int nLevel = 0;
     amrex::ParmParse pp_amr("amr");
     pp_amr.query("max_level", nLevel);
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(nLevel == 0,
+    WARPX_ALWAYS_ASSERT_WITH_MESSAGE(nLevel == 0,
         "FieldReduction reduced diagnostics does not work with mesh refinement.");
 
     constexpr int noutputs = 1; // A single output in the Field reduction diagnostic
@@ -38,8 +51,12 @@ FieldReduction::FieldReduction (std::string rd_name)
     std::string parser_string = "";
     Store_parserString(pp_rd_name,"reduced_function(x,y,z,Ex,Ey,Ez,Bx,By,Bz)",
                        parser_string);
-    m_parser = std::make_unique<ParserWrapper<m_nvars>>(
+    m_parser = std::make_unique<amrex::Parser>(
         makeParser(parser_string,{"x","y","z","Ex","Ey","Ez","Bx","By","Bz"}));
+
+    // Replace all newlines and possible following whitespaces with a single whitespace. This
+    // should avoid weird formatting when the string is written in the header of the output file.
+    parser_string = std::regex_replace(parser_string, std::regex("\n\\s*"), " ");
 
     // read reduction type
     std::string reduction_type_string;

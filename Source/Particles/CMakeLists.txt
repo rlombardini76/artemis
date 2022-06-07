@@ -1,13 +1,16 @@
 target_sources(WarpX
   PRIVATE
     MultiParticleContainer.cpp
+    ParticleBoundaries.cpp
     PhotonParticleContainer.cpp
     PhysicalParticleContainer.cpp
     RigidInjectedParticleContainer.cpp
     WarpXParticleContainer.cpp
     LaserParticleContainer.cpp
+    ParticleBoundaryBuffer.cpp
 )
 
+#add_subdirectory(Algorithms)
 add_subdirectory(Collision)
 #add_subdirectory(Deposition)
 add_subdirectory(ElementaryProcess)

@@ -1,11 +1,26 @@
+/* Copyright 2020 Revathi Jambunathan
+ *
+ * This file is part of WarpX.
+ *
+ * License: BSD-3-Clause-LBNL
+ */
+
 #ifndef WARPX_MACROSCOPICPROPERTIES_H_
 #define WARPX_MACROSCOPICPROPERTIES_H_
 
+#include "MacroscopicProperties_fwd.H"
 
-#include "Parser/WarpXParserWrapper.H"
 #include "Utils/WarpXConst.H"
-#include <AMReX_MultiFab.H>
 
+#include <AMReX_Array.H>
+#include <AMReX_Extension.H>
+#include <AMReX_GpuQualifiers.H>
+#include <AMReX_MultiFab.H>
+#include <AMReX_Parser.H>
+#include <AMReX_REAL.H>
+
+#include <memory>
+#include <string>
 
 
 /**
@@ -21,18 +36,26 @@ public:
      void ReadParameters ();
      /** Initialize multifabs storing macroscopic multifabs */
      void InitData ();
+
      /** return MultiFab, sigma (conductivity) of the medium. */
      amrex::MultiFab& getsigma_mf  () {return (*m_sigma_mf);}
+     amrex::MultiFab * get_pointer_sigma () {return m_sigma_mf.get();}
      /** return MultiFab, epsilon (permittivity) of the medium. */
      amrex::MultiFab& getepsilon_mf  () {return (*m_eps_mf);}
+     amrex::MultiFab * get_pointer_eps () {return m_eps_mf.get();}
      /** return MultiFab, mu (permeability) of the medium. */
      amrex::MultiFab& getmu_mf  () {return (*m_mu_mf);}
+     amrex::MultiFab * get_pointer_mu () {return m_mu_mf.get();}
 
+     /** Gpu Vector with index type of coarsening ratio with default value (1,1,1) */
+     amrex::GpuArray<int, 3> macro_cr_ratio;
      /** Initializes the Multifabs storing macroscopic properties
       *  with user-defined functions(x,y,z).
       */
      void InitializeMacroMultiFabUsingParser (amrex::MultiFab *macro_mf,
-                                  HostDeviceParser<3> const& macro_parser, int lev);
+                                  amrex::ParserExecutor<3> const& macro_parser,
+                                  const int lev);
+
      /** Gpu Vector with index type of the conductivity multifab */
      amrex::GpuArray<int, 3> sigma_IndexType;
      /** Gpu Vector with index type of the permittivity multifab */
@@ -45,27 +68,56 @@ public:
      amrex::GpuArray<int, 3> Ey_IndexType;
      /** Gpu Vector with index type of the Ez multifab */
      amrex::GpuArray<int, 3> Ez_IndexType;
+     /** Gpu Vector with index type of the Bx multifab */
+     amrex::GpuArray<int, 3> Bx_IndexType;
+     /** Gpu Vector with index type of the By multifab */
+     amrex::GpuArray<int, 3> By_IndexType;
+     /** Gpu Vector with index type of the Bz multifab */
+     amrex::GpuArray<int, 3> Bz_IndexType;
+
+     /** Stores initialization type for conductivity : constant or parser */
+     std::string m_sigma_s = "constant";
+     /** Stores initialization type for permittivity : constant or parser */
+     std::string m_epsilon_s = "constant";
+     /** Stores initialization type for permeability : constant or parser */
+     std::string m_mu_s = "constant";
+     /** Conductivity, sigma, of the medium */
+     amrex::Real m_sigma = 0.0;
+     /** Permittivity, epsilon, of the medium */
+     amrex::Real m_epsilon = PhysConst::ep0;
+     /** Permeability, mu, of the medium */
+     amrex::Real m_mu = PhysConst::mu0;
+     /** Parser Wrappers */
+     std::unique_ptr<amrex::Parser> m_sigma_parser;
+     std::unique_ptr<amrex::Parser> m_epsilon_parser;
+     std::unique_ptr<amrex::Parser> m_mu_parser;
+
 #ifdef WARPX_MAG_LLG
-     /** Gpu Vector with index type of the saturation magnetization multifab */
-     amrex::GpuArray<int, 3> mag_Ms_IndexType;
-     /** Gpu Vector with index type of the Gilbert damping factor multifab */
-     amrex::GpuArray<int, 3> mag_alpha_IndexType;
-     /** Gpu Vector with index type of the gyromagnetic ratio multifab */
-     amrex::GpuArray<int, 3> mag_gamma_IndexType;
+     /** Gpu Vector with index type of the Hx multifab */
+     amrex::GpuArray<int, 3> Hx_IndexType;
+     /** Gpu Vector with index type of the Hy multifab */
+     amrex::GpuArray<int, 3> Hy_IndexType;
+     /** Gpu Vector with index type of the Hz multifab */
+     amrex::GpuArray<int, 3> Hz_IndexType;
      /** Gpu Vector with index type of the Mx multifab */
      amrex::GpuArray<int, 3> Mx_IndexType;
      /** Gpu Vector with index type of the My multifab */
      amrex::GpuArray<int, 3> My_IndexType;
      /** Gpu Vector with index type of the Mz multifab */
      amrex::GpuArray<int, 3> Mz_IndexType;
-#endif
-     /** Gpu Vector with index type of coarsening ratio with default value (1,1,1) */
-     amrex::GpuArray<int, 3> macro_cr_ratio;
+     /** Gpu Vector of the anisotropy_axis for the anisotropy coupling term H_anisotropy in H_eff */
+     amrex::GpuArray<amrex::Real, 3> mag_LLG_anisotropy_axis;
 
-#ifdef WARPX_MAG_LLG
-     amrex::MultiFab& getmag_Ms_mf () {return (*m_mag_Ms_mf);}
-     amrex::MultiFab& getmag_alpha_mf () {return (*m_mag_alpha_mf);}
-     amrex::MultiFab& getmag_gamma_mf () {return (*m_mag_gamma_mf);}
+     amrex::MultiFab& getmag_Ms_mf        (int dir) {return (*m_mag_Ms_mf[dir]);}
+     amrex::MultiFab * getmag_pointer_Ms (int dir) {return m_mag_Ms_mf[dir].get();}
+     amrex::MultiFab& getmag_alpha_mf     (int dir) {return (*m_mag_alpha_mf[dir]);}
+     amrex::MultiFab * getmag_pointer_alpha (int dir) {return m_mag_alpha_mf[dir].get();}
+     amrex::MultiFab& getmag_gamma_mf     (int dir) {return (*m_mag_gamma_mf[dir]);}
+     amrex::MultiFab * getmag_pointer_gamma (int dir) {return m_mag_gamma_mf[dir].get();}
+     amrex::MultiFab& getmag_exchange_mf  (int dir) {return (*m_mag_exchange_mf[dir]);}
+     amrex::MultiFab * getmag_pointer_exchange (int dir) {return m_mag_exchange_mf[dir].get();}
+     amrex::MultiFab& getmag_anisotropy_mf(int dir) {return (*m_mag_anisotropy_mf[dir]);}
+     amrex::MultiFab * getmag_pointer_anisotropy (int dir) {return m_mag_anisotropy_mf[dir].get();}
 
      amrex::Real getmag_normalized_error () {return m_mag_normalized_error;}
      int getmag_max_iter () {return m_mag_max_iter;}
@@ -87,7 +139,7 @@ public:
                              + macro_mag_prop(i-iv[0]+1,j-iv[1]+1,k        )
                              + macro_mag_prop(i-iv[0]+1,j-iv[1]+1,k-iv[2]+1)
          ));
-     };
+     }
 
      /** \brief
          * This GPU kernel averages a face-centered field onto a (possibly different nodality) face.
@@ -120,7 +172,7 @@ public:
                              + Fieldcomp(i                   , j+iv_in[1]-iv_out[1], k+iv_in[2]-iv_out[2], n)
                              + Fieldcomp(i+iv_in[0]-iv_out[0], j+iv_in[1]-iv_out[1], k+iv_in[2]-iv_out[2], n)
                              ));
-     };
+     }
 
      /** \brief
      * Calculate local H_maxwell = B / mu_o - M
@@ -144,7 +196,7 @@ public:
          amrex::Real H_Maxwell = face_avg_to_face(i, j, k, 0, iv_in, iv_out, Bcomp)/PhysConst::mu0
                                  - Mcomp(i, j, k, n); //magnetic constitutive relation
          return H_Maxwell;
-     };
+     }
 
      /**
      update local M_field in the second-order time scheme
@@ -159,63 +211,42 @@ public:
          amrex::Real a_dot_b =  a(i, j, k, 0) * b(i, j, k, 0) +
                                 a(i, j, k, 1) * b(i, j, k, 1) +
                                 a(i, j, k, 2) * b(i, j, k, 2);
-         amrex::Real M_field;
+         // Initialize to 0.
+         amrex::Real M_field = 0._rt;
 
-     if(n==0){
-         amrex::Real a_cross_b_x = a(i, j, k, 1) * b(i, j, k, 2) -
-                                   a(i, j, k, 2) * b(i, j, k, 1);
-         M_field = ( b(i, j, k, 0) + a_dot_b * a(i, j, k, 0) - a_cross_b_x ) / ( 1.0 + a_square);
-     }
-     else if(n==1){
-         amrex::Real a_cross_b_y = a(i, j, k, 2) * b(i, j, k, 0) -
-                                   a(i, j, k, 0) * b(i, j, k, 2);
-         M_field = ( b(i, j, k, 1) + a_dot_b * a(i, j, k, 1) - a_cross_b_y ) / ( 1.0 + a_square);
-     }
-     else if(n==2){
-         amrex::Real a_cross_b_z = a(i, j, k, 0) * b(i, j, k, 1) -
-                                   a(i, j, k, 1) * b(i, j, k, 0);
-         M_field = ( b(i, j, k, 2) + a_dot_b * a(i, j, k, 2) - a_cross_b_z ) / ( 1.0 + a_square);
-     }
-     else{
-         printf("n=%d\n", n);
-         amrex::Abort("Wrong component n of the M_field");
-     };
+         if(n==0){
+             amrex::Real a_cross_b_x = a(i, j, k, 1) * b(i, j, k, 2) -
+                                       a(i, j, k, 2) * b(i, j, k, 1);
+             M_field = ( b(i, j, k, 0) + a_dot_b * a(i, j, k, 0) - a_cross_b_x ) / ( 1.0 + a_square);
+         }
+         else if(n==1){
+             amrex::Real a_cross_b_y = a(i, j, k, 2) * b(i, j, k, 0) -
+                                       a(i, j, k, 0) * b(i, j, k, 2);
+             M_field = ( b(i, j, k, 1) + a_dot_b * a(i, j, k, 1) - a_cross_b_y ) / ( 1.0 + a_square);
+         }
+         else if(n==2){
+             amrex::Real a_cross_b_z = a(i, j, k, 0) * b(i, j, k, 1) -
+                                       a(i, j, k, 1) * b(i, j, k, 0);
+             M_field = ( b(i, j, k, 2) + a_dot_b * a(i, j, k, 2) - a_cross_b_z ) / ( 1.0 + a_square);
+         }
+         else{
+             amrex::Abort("Wrong component n of the M_field");
+         }
          return M_field;
-     };
+     }
 #endif //closes ifdef MAG_LLG
 
-     /** Conductivity, sigma, of the medium */
-     amrex::Real m_sigma = 0.0;
-     /** Permittivity, epsilon, of the medium */
-     amrex::Real m_epsilon = PhysConst::ep0;
-     /** Permeability, mu, of the medium */
-     amrex::Real m_mu = PhysConst::mu0;
-
-     /** Stores initialization type for conductivity : constant or parser */
-     std::string m_sigma_s = "constant";
-     /** Stores initialization type for permittivity : constant or parser */
-     std::string m_epsilon_s = "constant";
-     /** Stores initialization type for permeability : constant or parser */
-     std::string m_mu_s = "constant";
-
-     /** Parser Wrappers */
-     // The ParserWrapper struct is constructed to safely use the GpuParser class
-     // that can essentially be though of as a raw pointer. The GpuParser does
-     // not have an explicit destructor and the AddPlasma subroutines handle the GpuParser
-     // in a safe way. The ParserWrapper struct is used to avoid memory leak
-     // in the EB parser functions.
-     std::unique_ptr<ParserWrapper<3> > m_sigma_parser;
-     std::unique_ptr<ParserWrapper<3> > m_epsilon_parser;
-     std::unique_ptr<ParserWrapper<3> > m_mu_parser;
-private:
-
-#ifdef WARPX_MAG_LLG // preferred to use this tag multiple times for different variable types to keep formatting consistent
+#ifdef WARPX_MAG_LLG
      /** Saturation magnetization, only applies for magnetic materials */
      amrex::Real m_mag_Ms;
      /** Gilbert damping, only applies for magnetic materials */
      amrex::Real m_mag_alpha;
      /** gyromagnetic ratio, should be a negative value, only applies for magnetic materials */
      amrex::Real m_mag_gamma;
+     /** The coefficient of the exchange coupling term, only applies for magnetic materials */
+     amrex::Real m_mag_exchange;
+     /** The coefficient of the anisotropy coupling term, only applies for magnetic materials */
+     amrex::Real m_mag_anisotropy;
 
      // If the magnitude of the magnetization deviates by more than this amount relative
      // to the user-defined Ms, abort.  Default 0.1.
@@ -227,7 +258,39 @@ private:
      // the relative tolerance for the second-order time advancement scheme of M field, default 0.0001
      amrex::Real m_mag_tol;
 
+     /** Multifabs storing spatially varying saturation magnetization on three faces  */
+     std::array<std::unique_ptr<amrex::MultiFab>, 3> m_mag_Ms_mf;
+     /** Multifabs storing spatially varying Gilbert damping on three faces */
+     std::array<std::unique_ptr<amrex::MultiFab>, 3> m_mag_alpha_mf;
+     /** Multifabs storing spatially varying gyromagnetic ratio on three faces  */
+     std::array<std::unique_ptr<amrex::MultiFab>, 3> m_mag_gamma_mf;
+     /** Multifabs storing spatially varying coefficient of the exchange coupling term on three faces  */
+     std::array<std::unique_ptr<amrex::MultiFab>, 3> m_mag_exchange_mf;
+     /** Multifabs storing spatially varying coefficient of the anisotropy coupling term on three faces  */
+     std::array<std::unique_ptr<amrex::MultiFab>, 3> m_mag_anisotropy_mf;
+
+     // these store the type of initialization, e.g., "constant", "parse_X_function", etc.
+     std::string m_mag_Ms_s;
+     std::string m_mag_alpha_s;
+     std::string m_mag_gamma_s;
+     std::string m_mag_exchange_s;
+     std::string m_mag_anisotropy_s;
+
+     // these store the parsed expression for the material properties
+     std::string m_str_mag_Ms_function;
+     std::string m_str_mag_alpha_function;
+     std::string m_str_mag_gamma_function;
+     std::string m_str_mag_exchange_function;
+     std::string m_str_mag_anisotropy_function;
+
+     std::unique_ptr<amrex::Parser> m_mag_Ms_parser;
+     std::unique_ptr<amrex::Parser> m_mag_alpha_parser;
+     std::unique_ptr<amrex::Parser> m_mag_gamma_parser;
+     std::unique_ptr<amrex::Parser> m_mag_exchange_parser;
+     std::unique_ptr<amrex::Parser> m_mag_anisotropy_parser;
 #endif
+
+private:
 
      /** Multifab for m_sigma */
      std::unique_ptr<amrex::MultiFab> m_sigma_mf;
@@ -236,43 +299,12 @@ private:
      /** Multifab for m_mu */
      std::unique_ptr<amrex::MultiFab> m_mu_mf;
 
-#ifdef WARPX_MAG_LLG
-     /** Multifab storing spatially varying saturation magnetization */
-     std::unique_ptr<amrex::MultiFab> m_mag_Ms_mf;
-     /** Multifab storing spatially varying Gilbert damping */
-     std::unique_ptr<amrex::MultiFab> m_mag_alpha_mf;
-     /** Multifab storing spatially varying gyromagnetic ratio */
-     std::unique_ptr<amrex::MultiFab> m_mag_gamma_mf;
-#endif
-
-
-#ifdef WARPX_MAG_LLG
-     std::string m_mag_Ms_s;
-     std::string m_mag_alpha_s;
-     std::string m_mag_gamma_s;
-#endif
 
      /** string for storing parser function */
      std::string m_str_sigma_function;
      std::string m_str_epsilon_function;
      std::string m_str_mu_function;
-#ifdef WARPX_MAG_LLG
-     std::string m_str_mag_Ms_function;
-     std::string m_str_mag_alpha_function;
-     std::string m_str_mag_gamma_function;
-#endif
 
-     /** Parser Wrappers */
-     // The ParserWrapper struct is constructed to safely use the GpuParser class
-     // that can essentially be though of as a raw pointer. The GpuParser does
-     // not have an explicit destructor and the AddPlasma subroutines handle the GpuParser
-     // in a safe way. The ParserWrapper struct is used to avoid memory leak
-     // in the EB parser functions.
-#ifdef WARPX_MAG_LLG
-     std::unique_ptr<ParserWrapper<3> > m_mag_Ms_parser;
-     std::unique_ptr<ParserWrapper<3> > m_mag_alpha_parser;
-     std::unique_ptr<ParserWrapper<3> > m_mag_gamma_parser;
-#endif
 };
 
 /**

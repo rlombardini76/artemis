@@ -6,15 +6,23 @@
  */
 
 #include "FieldEnergy.H"
-#include "WarpX.H"
+
+#include "Diagnostics/ReducedDiags/ReducedDiags.H"
+#include "Utils/IntervalsParser.H"
+#include "Utils/TextMsg.H"
 #include "Utils/WarpXConst.H"
+#include "WarpX.H"
 
+#include <AMReX_Config.H>
+#include <AMReX_Geometry.H>
+#include <AMReX_MultiFab.H>
+#include <AMReX_ParallelDescriptor.H>
+#include <AMReX_ParmParse.H>
 #include <AMReX_REAL.H>
-#include <AMReX_ParticleReduce.H>
 
-#include <iostream>
-#include <cmath>
-
+#include <algorithm>
+#include <fstream>
+#include <vector>
 
 using namespace amrex;
 
@@ -24,7 +32,7 @@ FieldEnergy::FieldEnergy (std::string rd_name)
 {
     // RZ coordinate is not working
 #if (defined WARPX_DIM_RZ)
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(false,
+    WARPX_ALWAYS_ASSERT_WITH_MESSAGE(false,
         "FieldEnergy reduced diagnostics does not work for RZ coordinate.");
 #endif
 
@@ -92,9 +100,11 @@ void FieldEnergy::ComputeDiags (int step)
 
         // get cell size
         Geometry const & geom = warpx.Geom(lev);
-#if (AMREX_SPACEDIM == 2)
+#if defined(WARPX_DIM_1D_Z)
+        auto dV = geom.CellSize(0);
+#elif defined(WARPX_DIM_XZ) || defined(WARPX_DIM_RZ)
         auto dV = geom.CellSize(0) * geom.CellSize(1);
-#elif (AMREX_SPACEDIM == 3)
+#elif defined(WARPX_DIM_3D)
         auto dV = geom.CellSize(0) * geom.CellSize(1) * geom.CellSize(2);
 #endif
 

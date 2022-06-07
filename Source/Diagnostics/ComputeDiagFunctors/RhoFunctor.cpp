@@ -1,12 +1,22 @@
-#include "WarpX.H"
 #include "RhoFunctor.H"
-#include "Utils/CoarsenIO.H"
 
+#include "Diagnostics/ComputeDiagFunctors/ComputeDiagFunctor.H"
 #if (defined WARPX_DIM_RZ) && (defined WARPX_USE_PSATD)
-#include "FieldSolver/SpectralSolver/SpectralFieldData.H"
+    #include "FieldSolver/SpectralSolver/SpectralFieldData.H"
+    #include "FieldSolver/SpectralSolver/SpectralSolverRZ.H"
+    #include "Utils/WarpXAlgorithmSelection.H"
 #endif
+#include "Particles/MultiParticleContainer.H"
+#include "Particles/WarpXParticleContainer.H"
+#include "Utils/CoarsenIO.H"
+#include "Utils/TextMsg.H"
+#include "WarpX.H"
 
 #include <AMReX.H>
+#include <AMReX_IntVect.H>
+#include <AMReX_MultiFab.H>
+
+#include <memory>
 
 RhoFunctor::RhoFunctor (const int lev,
                         const amrex::IntVect crse_ratio,
@@ -45,12 +55,16 @@ RhoFunctor::operator() ( amrex::MultiFab& mf_dst, const int dcomp, const int /*i
     warpx.ApplyFilterandSumBoundaryRho(m_lev, m_lev, *rho, 0, rho->nComp());
 
 #if (defined WARPX_DIM_RZ) && (defined WARPX_USE_PSATD)
-    using Idx = SpectralAvgFieldIndex;
-    if (WarpX::use_kspace_filter) {
-        auto & solver = warpx.get_spectral_solver_fp(m_lev);
-        solver.ForwardTransform(m_lev, *rho, Idx::rho_new);
-        solver.ApplyFilter(Idx::rho_new);
-        solver.BackwardTransform(m_lev, *rho, Idx::rho_new);
+    // Apply k-space filtering when using the PSATD solver
+    if (WarpX::maxwell_solver_id == MaxwellSolverAlgo::PSATD)
+    {
+        if (WarpX::use_kspace_filter) {
+            auto & solver = warpx.get_spectral_solver_fp(m_lev);
+            const SpectralFieldIndex& Idx = solver.m_spectral_index;
+            solver.ForwardTransform(m_lev, *rho, Idx.rho_new);
+            solver.ApplyFilter(m_lev, Idx.rho_new);
+            solver.BackwardTransform(m_lev, *rho, Idx.rho_new);
+        }
     }
 #endif
 
@@ -59,7 +73,7 @@ RhoFunctor::operator() ( amrex::MultiFab& mf_dst, const int dcomp, const int /*i
     if (m_convertRZmodes2cartesian) {
         // In cylindrical geometry, sum real part of all modes of rho in
         // temporary MultiFab mf_dst_stag, and cell-center it to mf_dst
-        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        WARPX_ALWAYS_ASSERT_WITH_MESSAGE(
             nComp()==1,
             "The RZ averaging over modes must write into one single component");
         amrex::MultiFab mf_dst_stag( rho->boxArray(), warpx.DistributionMap(m_lev), 1, rho->nGrowVect() );

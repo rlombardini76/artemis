@@ -9,14 +9,21 @@
 #ifndef WARPX_LaserParticleContainer_H_
 #define WARPX_LaserParticleContainer_H_
 
+#include "Evolve/WarpXDtType.H"
 #include "Laser/LaserProfiles.H"
-
 #include "WarpXParticleContainer.H"
-#include "Utils/WarpXConst.H"
-#include "Parser/WarpXParser.H"
 
-#include <memory>
+#include <AMReX_Extension.H>
+#include <AMReX_REAL.H>
+#include <AMReX_RealBox.H>
+#include <AMReX_Vector.H>
+
+#include <AMReX_BaseFwd.H>
+#include <AMReX_AmrCoreFwd.H>
+
 #include <limits>
+#include <memory>
+#include <string>
 
 /**
  * The main method to inject a laser pulse in WarpX is to use an artificial
@@ -37,6 +44,10 @@ public:
     virtual ~LaserParticleContainer () {}
 
     virtual void InitData () final;
+
+    virtual void ReadHeader (std::istream& is) final;
+
+    virtual void WriteHeader (std::ostream& os) const final;
 
     virtual void Evolve (int lev,
                          const amrex::MultiFab&, const amrex::MultiFab&, const amrex::MultiFab&,
@@ -80,7 +91,6 @@ private:
     amrex::Vector<amrex::Real> m_nvec; //! Normal of the plane of the antenna
     amrex::Vector<amrex::Real> m_p_X;// ! Polarization
 
-    long                      m_pusher_algo = -1;
     amrex::Real               m_e_max       = std::numeric_limits<amrex::Real>::quiet_NaN();
     amrex::Real               m_wavelength  = std::numeric_limits<amrex::Real>::quiet_NaN();
 
@@ -114,6 +124,8 @@ private:
     // Unique (smart) pointer to the laser profile
     std::unique_ptr<WarpXLaserProfiles::ILaserProfile> m_up_laser_profile;
 
+    // Flag to disable the laser (e.g., if e_max is 0)
+    bool m_enabled = true;
 };
 
 #endif

@@ -9,8 +9,32 @@
 #define WARPX_DIAGNOSTICS_REDUCEDDIAGS_FIELDREDUCTION_H_
 
 #include "ReducedDiags.H"
-#include "WarpX.H"
 #include "Utils/CoarsenIO.H"
+#include "WarpX.H"
+
+#include <AMReX_Array.H>
+#include <AMReX_Box.H>
+#include <AMReX_Config.H>
+#include <AMReX_FArrayBox.H>
+#include <AMReX_FabArray.H>
+#include <AMReX_Geometry.H>
+#include <AMReX_GpuControl.H>
+#include <AMReX_GpuQualifiers.H>
+#include <AMReX_IndexType.H>
+#include <AMReX_MFIter.H>
+#include <AMReX_MultiFab.H>
+#include <AMReX_ParallelDescriptor.H>
+#include <AMReX_Parser.H>
+#include <AMReX_REAL.H>
+#include <AMReX_RealBox.H>
+#include <AMReX_Reduce.H>
+#include <AMReX_Tuple.H>
+
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <vector>
+
 
 /**
  * This class contains a function that computes an arbitrary reduction of the fields. The function
@@ -39,7 +63,7 @@ private:
     /// Parser to read expression to be reduced from the input file.
     /// 9 elements are x, y, z, Ex, Ey, Ez, Bx, By, Bz
     static constexpr int m_nvars = 9;
-    std::unique_ptr<ParserWrapper<m_nvars>> m_parser;
+    std::unique_ptr<amrex::Parser> m_parser;
 
     // Type of reduction (e.g. Maximum, Minimum or Sum)
     int m_reduction_type;
@@ -103,7 +127,7 @@ public:
         }
 
         // get parser
-        HostDeviceParser<m_nvars> reduction_function_parser = getParser(m_parser);
+        auto reduction_function_parser = m_parser->compile<m_nvars>();
 
         // MFIter loop to interpolate fields to cell center and perform reduction
 #ifdef AMREX_USE_OMP
@@ -126,7 +150,7 @@ public:
             {
                  // 0.5 is here because position are computed on the cell centers
                 const amrex::Real x = (i + 0.5_rt)*dx[0] + real_box.lo(0);
-#if (AMREX_SPACEDIM==2)
+#if defined(WARPX_DIM_XZ) || defined(WARPX_DIM_RZ)
                 const amrex::Real y = 0._rt;
                 const amrex::Real z = (j + 0.5_rt)*dx[1] + real_box.lo(1);
 #else
@@ -166,7 +190,7 @@ public:
             amrex::ParallelDescriptor::ReduceRealSum(reduce_value);
         // If reduction operation is a sum, multiply the value by the cell volume so that the
         // result is the integral of the function over the simulation domain.
-#if (AMREX_SPACEDIM==2)
+#if defined(WARPX_DIM_XZ) || defined(WARPX_DIM_RZ)
             reduce_value *= dx[0]*dx[1];
 #else
             reduce_value *= dx[0]*dx[1]*dx[2];

@@ -6,24 +6,40 @@
  * License: BSD-3-Clause-LBNL
  */
 #include "PhotonParticleContainer.H"
-#include "Utils/WarpXConst.H"
-#include "WarpX.H"
 
-// Import low-level single-particle kernels
-#include "Particles/Pusher/UpdatePositionPhoton.H"
-#include "Particles/Pusher/GetAndSetPosition.H"
-#include "Particles/Pusher/CopyParticleAttribs.H"
+#ifdef WARPX_QED
+#   include "Particles/ElementaryProcess/QEDInternals/BreitWheelerEngineWrapper.H"
+#endif
 #include "Particles/Gather/FieldGather.H"
 #include "Particles/Gather/GetExternalFields.H"
+#include "Particles/PhysicalParticleContainer.H"
+#include "Particles/Pusher/CopyParticleAttribs.H"
+#include "Particles/Pusher/GetAndSetPosition.H"
+#include "Particles/Pusher/UpdatePositionPhoton.H"
+#include "Particles/WarpXParticleContainer.H"
+#include "Utils/TextMsg.H"
+#include "WarpX.H"
 
-#ifdef AMREX_USE_OMP
-#include <omp.h>
-#endif
+#include <AMReX_Array.H>
+#include <AMReX_Array4.H>
+#include <AMReX_BLassert.H>
+#include <AMReX_Box.H>
+#include <AMReX_Dim3.H>
+#include <AMReX_Extension.H>
+#include <AMReX_FArrayBox.H>
+#include <AMReX_GpuLaunch.H>
+#include <AMReX_GpuQualifiers.H>
+#include <AMReX_IndexType.H>
+#include <AMReX_IntVect.H>
+#include <AMReX_PODVector.H>
+#include <AMReX_ParmParse.H>
+#include <AMReX_Particles.H>
+#include <AMReX_StructOfArrays.H>
 
-#include <limits>
-#include <sstream>
 #include <algorithm>
-
+#include <array>
+#include <map>
+#include <memory>
 
 using namespace amrex;
 
@@ -47,7 +63,7 @@ PhotonParticleContainer::PhotonParticleContainer (AmrCore* amr_core, int ispecie
         //Check for processes which do not make sense for photons
         bool test_quantum_sync = false;
         pp_species_name.query("do_qed_quantum_sync", test_quantum_sync);
-        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+        WARPX_ALWAYS_ASSERT_WITH_MESSAGE(
         test_quantum_sync == 0,
         "ERROR: do_qed_quantum_sync can be 1 for species NOT listed in particles.photon_species only!");
         //_________________________________________________________
@@ -71,7 +87,7 @@ PhotonParticleContainer::PushPX (WarpXParIter& pti,
                                  amrex::FArrayBox const * bxfab,
                                  amrex::FArrayBox const * byfab,
                                  amrex::FArrayBox const * bzfab,
-                                 const amrex::IntVect ngE, const int /*e_is_nodal*/,
+                                 const amrex::IntVect ngEB, const int /*e_is_nodal*/,
                                  const long offset,
                                  const long np_to_push,
                                  int lev, int gather_lev,
@@ -91,14 +107,14 @@ PhotonParticleContainer::PushPX (WarpXParIter& pti,
     }
 
     // Add guard cells to the box.
-    box.grow(ngE);
+    box.grow(ngEB);
 
     auto& attribs = pti.GetAttribs();
 
     // Extract pointers to the different particle quantities
-    ParticleReal* const AMREX_RESTRICT ux = attribs[PIdx::ux].dataPtr();
-    ParticleReal* const AMREX_RESTRICT uy = attribs[PIdx::uy].dataPtr();
-    ParticleReal* const AMREX_RESTRICT uz = attribs[PIdx::uz].dataPtr();
+    ParticleReal* const AMREX_RESTRICT ux = attribs[PIdx::ux].dataPtr() + offset;
+    ParticleReal* const AMREX_RESTRICT uy = attribs[PIdx::uy].dataPtr() + offset;
+    ParticleReal* const AMREX_RESTRICT uz = attribs[PIdx::uz].dataPtr() + offset;
 
 #ifdef WARPX_QED
     BreitWheelerEvolveOpticalDepth evolve_opt;
@@ -106,29 +122,21 @@ PhotonParticleContainer::PushPX (WarpXParIter& pti,
     const bool local_has_breit_wheeler = has_breit_wheeler();
     if (local_has_breit_wheeler) {
         evolve_opt = m_shr_p_bw_engine->build_evolve_functor();
-        p_optical_depth_BW = pti.GetAttribs(particle_comps["optical_depth_BW"]).dataPtr();
+        p_optical_depth_BW = pti.GetAttribs(particle_comps["opticalDepthBW"]).dataPtr() + offset;
     }
 #endif
 
-    auto copyAttribs = CopyParticleAttribs(pti, tmp_particle_data);
+    auto copyAttribs = CopyParticleAttribs(pti, tmp_particle_data, offset);
     int do_copy = (WarpX::do_back_transformed_diagnostics &&
                    do_back_transformed_diagnostics && a_dt_type!=DtType::SecondHalf);
 
     const auto GetPosition = GetParticlePosition(pti, offset);
     auto SetPosition = SetParticlePosition(pti, offset);
 
-    const auto getExternalE = GetExternalEField(pti, offset);
-    const auto getExternalB = GetExternalBField(pti, offset);
+    const auto getExternalEB = GetExternalEBField(pti, offset);
 
     // Lower corner of tile box physical domain (take into account Galilean shift)
-    amrex::Real cur_time = WarpX::GetInstance().gett_new(lev);
-    const auto& time_of_last_gal_shift = WarpX::GetInstance().time_of_last_gal_shift;
-    amrex::Real time_shift = (cur_time - time_of_last_gal_shift);
-    amrex::Array<amrex::Real,3> galilean_shift = {
-        m_v_galilean[0]*time_shift,
-        m_v_galilean[1]*time_shift,
-        m_v_galilean[2]*time_shift };
-    const std::array<Real, 3>& xyzmin = WarpX::LowerCorner(box, galilean_shift, gather_lev);
+    const std::array<amrex::Real, 3>& xyzmin = WarpX::LowerCorner(box, gather_lev, 0._rt);
 
     const Dim3 lo = lbound(box);
 
@@ -173,8 +181,7 @@ PhotonParticleContainer::PushPX (WarpXParIter& pti,
                                dx_arr, xyzmin_arr, lo, n_rz_azimuthal_modes,
                                nox, galerkin_interpolation);
             }
-            getExternalE(i, Exp, Eyp, Ezp);
-            getExternalB(i, Bxp, Byp, Bzp);
+            getExternalEB(i, Exp, Eyp, Ezp, Bxp, Byp, Bzp);
 
 #ifdef WARPX_QED
             if (local_has_breit_wheeler) {

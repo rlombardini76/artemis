@@ -1,5 +1,14 @@
 #include "MultiDiagnostics.H"
+
+#include "Diagnostics/BTDiagnostics.H"
+#include "Diagnostics/FullDiagnostics.H"
+#include "Utils/TextMsg.H"
+
 #include <AMReX_ParmParse.H>
+#include <AMReX.H>
+#include <AMReX_REAL.H>
+
+#include <algorithm>
 
 using namespace amrex;
 
@@ -14,9 +23,13 @@ MultiDiagnostics::MultiDiagnostics ()
         if ( diags_types[i] == DiagTypes::Full ){
             alldiags[i] = std::make_unique<FullDiagnostics>(i, diags_names[i]);
         } else if ( diags_types[i] == DiagTypes::BackTransformed ){
+#ifdef WARPX_DIM_RZ
+            amrex::Abort(Utils::TextMsg::Err("BackTransformed diagnostics is currently not supported for RZ"));
+#else
             alldiags[i] = std::make_unique<BTDiagnostics>(i, diags_names[i]);
+#endif
         } else {
-            amrex::Abort("Unknown diagnostic type");
+            amrex::Abort(Utils::TextMsg::Err("Unknown diagnostic type"));
         }
     }
 }
@@ -47,7 +60,7 @@ MultiDiagnostics::ReadParameters ()
     pp_diagnostics.query("enable", enable_diags);
     if (enable_diags == 1) {
         pp_diagnostics.queryarr("diags_names", diags_names);
-        ndiags = diags_names.size();
+        ndiags = static_cast<int>(diags_names.size());
     }
 
     diags_types.resize( ndiags );
@@ -61,10 +74,29 @@ MultiDiagnostics::ReadParameters ()
 }
 
 void
-MultiDiagnostics::FilterComputePackFlush (int step, bool force_flush)
+MultiDiagnostics::FilterComputePackFlush (int step, bool force_flush, bool BackTransform)
+{
+    int i = 0;
+    for (auto& diag : alldiags){
+        if (BackTransform == true) {
+            if (diags_types[i] == DiagTypes::BackTransformed)
+                diag->FilterComputePackFlush (step, force_flush);
+        } else {
+            if (diags_types[i] != DiagTypes::BackTransformed)
+                diag->FilterComputePackFlush (step, force_flush);
+        }
+        ++i;
+    }
+}
+
+void
+MultiDiagnostics::FilterComputePackFlushLastTimestep (int step)
 {
     for (auto& diag : alldiags){
-        diag->FilterComputePackFlush (step, force_flush);
+        if (diag->DoDumpLastTimestep()){
+            constexpr bool force_flush = true;
+            diag->FilterComputePackFlush (step, force_flush);
+        }
     }
 }
 

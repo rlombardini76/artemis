@@ -2,7 +2,7 @@
 
 ## Overview
 
-ARTEMIS (Adaptive Refinement Time-domain ElectrodynaMIcs Solver) is a development branch of WarpX for modeling micromagnetics and electrodynamic waves in next-generation microelectornics.
+ARTEMIS (Adaptive Refinement Time-domain ElectrodynaMIcs Solver) is a development fork of WarpX for modeling micromagnetics and electrodynamic waves in next-generation microelectornics.
 
 ## Documentation
 
@@ -11,7 +11,7 @@ ARTEMIS (Adaptive Refinement Time-domain ElectrodynaMIcs Solver) is a developmen
 [![yt-project](https://img.shields.io/static/v1?label="works%20with"&message="yt"&color="blueviolet")](https://yt-project.org)
 
 In order to learn how to install and run the code, please see the online documentation:
-https://warpx.readthedocs.io
+https://artemis-em.readthedocs.io
 
 To contact the developers, feel free to open an issue on this repo.
 
@@ -29,7 +29,7 @@ Our workflow is described in [CONTRIBUTING.rst](CONTRIBUTING.rst).
 
 ## License
 
-WarpX Copyright (c) 2018-2021, The Regents of the University of California,
+WarpX Copyright (c) 2018-2022, The Regents of the University of California,
 through Lawrence Berkeley National Laboratory (subject to receipt of any
 required approvals from the U.S. Dept. of Energy).  All rights reserved.
 

@@ -8,8 +8,10 @@
 #ifndef INJECTOR_POSITION_H_
 #define INJECTOR_POSITION_H_
 
-#include <AMReX_Gpu.H>
+#include "InjectorPosition_fwd.H"
+
 #include <AMReX_Dim3.H>
+#include <AMReX_Gpu.H>
 #include <AMReX_Utility.H>
 
 // struct whose getPositionUnitBox returns x, y and z for a particle with
@@ -23,6 +25,39 @@ struct InjectorPositionRandom
     {
         return amrex::XDim3{amrex::Random(engine), amrex::Random(engine), amrex::Random(engine)};
     }
+};
+
+// struct whose getPositionUnitBox returns x, y and z for a particle with
+// random distribution on a plane inside a unit cell.
+struct InjectorPositionRandomPlane
+{
+    InjectorPositionRandomPlane (int const& a_dir) noexcept : dir(a_dir) {}
+
+    AMREX_GPU_HOST_DEVICE
+    amrex::XDim3
+    getPositionUnitBox (int /*i_part*/, int /*ref_fac*/,
+                        amrex::RandomEngine const& engine) const noexcept
+    {
+        using namespace amrex::literals;
+#if ((defined WARPX_DIM_3D) || (defined WARPX_DIM_RZ))
+        // In RZ, the 3 components of the `XDim3` vector below correspond to r, theta, z respectively
+        if (dir == 0) return amrex::XDim3{0._rt, amrex::Random(engine), amrex::Random(engine)};
+        if (dir == 1) return amrex::XDim3{amrex::Random(engine), 0._rt, amrex::Random(engine)};
+        else          return amrex::XDim3{amrex::Random(engine), amrex::Random(engine), 0._rt};
+#elif (defined(WARPX_DIM_XZ))
+        // In 2D, the 2 first components of the `XDim3` vector below correspond to x and z
+        if (dir == 0) return amrex::XDim3{0._rt, amrex::Random(engine), 0._rt};
+        if (dir == 1) return amrex::XDim3{amrex::Random(engine), amrex::Random(engine), 0._rt};
+        else          return amrex::XDim3{amrex::Random(engine), 0._rt, 0._rt};
+#elif (defined(WARPX_DIM_1D_Z))
+        // In 2D, the first components of the `XDim3` vector below correspond to z
+        if (dir == 0) return amrex::XDim3{amrex::Random(engine), 0._rt, 0._rt};
+        if (dir == 1) return amrex::XDim3{amrex::Random(engine), 0._rt, 0._rt};
+        else          return amrex::XDim3{0._rt, 0._rt, 0._rt};
+#endif
+    }
+private:
+    int dir;
 };
 
 // struct whose getPositionUnitBox returns x, y and z for a particle with
@@ -83,6 +118,19 @@ struct InjectorPosition
           zmin(a_zmin), zmax(a_zmax)
     { }
 
+    // This constructor stores a InjectorPositionRandomPlane in union object.
+    InjectorPosition (InjectorPositionRandomPlane* t,
+                      amrex::Real a_xmin, amrex::Real a_xmax,
+                      amrex::Real a_ymin, amrex::Real a_ymax,
+                      amrex::Real a_zmin, amrex::Real a_zmax,
+                      int const& a_dir)
+        : type(Type::randomplane),
+          object(t, a_dir),
+          xmin(a_xmin), xmax(a_xmax),
+          ymin(a_ymin), ymax(a_ymax),
+          zmin(a_zmin), zmax(a_zmax)
+    { }
+
     // This constructor stores a InjectorPositionRegular in union object.
     InjectorPosition (InjectorPositionRegular* t,
                       amrex::Real a_xmin, amrex::Real a_xmax,
@@ -116,6 +164,10 @@ struct InjectorPosition
         {
             return object.regular.getPositionUnitBox(i_part, ref_fac, engine);
         }
+        case Type::randomplane:
+        {
+            return object.randomplane.getPositionUnitBox(i_part, ref_fac, engine);
+        }
         default:
         {
             return object.random.getPositionUnitBox(i_part, ref_fac, engine);
@@ -144,16 +196,19 @@ struct InjectorPosition
     }
 
 private:
-    enum struct Type { random, regular };
+    enum struct Type { random, randomplane, regular };
     Type type;
 
     // An instance of union Object constructs and stores any one of
     // the objects declared (random or regular).
     union Object {
         Object (InjectorPositionRandom*) noexcept : random() {}
+        Object (InjectorPositionRandomPlane*, int const& a_dir) noexcept
+            : randomplane(a_dir) {}
         Object (InjectorPositionRegular*, amrex::Dim3 const& a_ppc) noexcept
             : regular(a_ppc) {}
         InjectorPositionRandom random;
+        InjectorPositionRandomPlane randomplane;
         InjectorPositionRegular regular;
     };
     Object object;

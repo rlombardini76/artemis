@@ -1,3 +1,31 @@
+# Set C++17 for the whole build if not otherwise requested
+#
+# This is the easiest way to push up a C++17 requirement for AMReX, PICSAR and
+# openPMD-api until they increase their requirement.
+#
+macro(set_cxx17_superbuild)
+    if(NOT DEFINED CMAKE_CXX_STANDARD)
+        set(CMAKE_CXX_STANDARD 17)
+    endif()
+    if(NOT DEFINED CMAKE_CXX_EXTENSIONS)
+        set(CMAKE_CXX_EXTENSIONS OFF)
+    endif()
+    if(NOT DEFINED CMAKE_CXX_STANDARD_REQUIRED)
+        set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    endif()
+
+    if(NOT DEFINED CMAKE_CUDA_STANDARD)
+        set(CMAKE_CUDA_STANDARD 17)
+    endif()
+    if(NOT DEFINED CMAKE_CUDA_EXTENSIONS)
+        set(CMAKE_CUDA_EXTENSIONS OFF)
+    endif()
+    if(NOT DEFINED CMAKE_CUDA_STANDARD_REQUIRED)
+        set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+    endif()
+endmacro()
+
+
 # find the CCache tool and use it if found
 #
 macro(set_ccache)
@@ -72,13 +100,10 @@ macro(set_default_build_type default_build_type)
             set_property(CACHE CMAKE_BUILD_TYPE
                 PROPERTY STRINGS ${CMAKE_CONFIGURATION_TYPES})
         endif()
-
-        # RelWithDebInfo uses -O2 which is sub-ideal for how it is intended to be used
-        #   https://gitlab.kitware.com/cmake/cmake/-/merge_requests/591
-        list(TRANSFORM CMAKE_C_FLAGS_RELWITHDEBINFO REPLACE "-O2" "-O3")
-        list(TRANSFORM CMAKE_CXX_FLAGS_RELWITHDEBINFO REPLACE "-O2" "-O3")
-        # FIXME: due to the "AMReX inits CUDA first" logic we will first see this with -O2 in output
-        list(TRANSFORM CMAKE_CUDA_FLAGS_RELWITHDEBINFO REPLACE "-O2" "-O3")
+        if(NOT CMAKE_BUILD_TYPE IN_LIST CMAKE_CONFIGURATION_TYPES)
+            message(WARNING "CMAKE_BUILD_TYPE '${CMAKE_BUILD_TYPE}' is not one of "
+                    "${CMAKE_CONFIGURATION_TYPES}. Is this a typo?")
+        endif()
     endif()
 endmacro()
 
@@ -133,7 +158,7 @@ endfunction()
 # Take an <imported_target> and expose it as INTERFACE target with
 # WarpX::thirdparty::<propagated_name> naming and SYSTEM includes.
 #
-function(make_third_party_includes_system imported_target propagated_name)
+function(warpx_make_third_party_includes_system imported_target propagated_name)
     add_library(WarpX::thirdparty::${propagated_name} INTERFACE IMPORTED)
     target_link_libraries(WarpX::thirdparty::${propagated_name} INTERFACE ${imported_target})
 
@@ -161,14 +186,12 @@ function(set_warpx_binary_name)
     if(WarpX_LIB)
         list(APPEND warpx_bin_names shared)
     endif()
-    foreach(tgt IN LISTS _ALL_TARGETS)
+    foreach(tgt IN LISTS warpx_bin_names)
         set_target_properties(${tgt} PROPERTIES OUTPUT_NAME "warpx")
-        if(WarpX_DIMS STREQUAL 3)
-            set_property(TARGET ${tgt} APPEND_STRING PROPERTY OUTPUT_NAME ".3d")
-        elseif(WarpX_DIMS STREQUAL 2)
-            set_property(TARGET ${tgt} APPEND_STRING PROPERTY OUTPUT_NAME ".2d")
-        elseif(WarpX_DIMS STREQUAL RZ)
+        if(WarpX_DIMS STREQUAL RZ)
             set_property(TARGET ${tgt} APPEND_STRING PROPERTY OUTPUT_NAME ".RZ")
+        else()
+            set_property(TARGET ${tgt} APPEND_STRING PROPERTY OUTPUT_NAME ".${WarpX_DIMS}d")
         endif()
 
         if(WarpX_MPI)
@@ -198,7 +221,7 @@ function(set_warpx_binary_name)
         endif()
 
         if(WarpX_MAG_LLG)
-            set_property(TARGET WarpX APPEND_STRING PROPERTY OUTPUT_NAME ".LLG")
+            set_property(TARGET ${tgt} APPEND_STRING PROPERTY OUTPUT_NAME ".LLG")
         endif()
 
         if(WarpX_EB)
@@ -211,6 +234,10 @@ function(set_warpx_binary_name)
 
         if(WarpX_QED_TABLE_GEN)
             set_property(TARGET ${tgt} APPEND_STRING PROPERTY OUTPUT_NAME ".GENQEDTABLES")
+        endif()
+
+        if(WarpX_SENSEI)
+            set_property(TARGET ${tgt} APPEND_STRING PROPERTY OUTPUT_NAME ".SENSEI")
         endif()
 
 
@@ -229,12 +256,10 @@ function(set_warpx_binary_name)
     endif()
     if(WarpX_LIB)
         # alias to the latest build; this is the one expected by Python bindings
-        if(WarpX_DIMS STREQUAL 3)
-            set(lib_suffix "3d")
-        elseif(WarpX_DIMS STREQUAL 2)
-            set(lib_suffix "2d")
-        elseif(WarpX_DIMS STREQUAL RZ)
+        if(WarpX_DIMS STREQUAL RZ)
             set(lib_suffix "rz")
+        else()
+            set(lib_suffix "${WarpX_DIMS}d")
         endif()
         if(WIN32)
             set(mod_ext "dll")
@@ -244,7 +269,7 @@ function(set_warpx_binary_name)
         add_custom_command(TARGET shared POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E create_symlink
                 $<TARGET_FILE_NAME:shared>
-                ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libwarpx.${lib_suffix}.${mod_ext}
+                $<TARGET_FILE_DIR:shared>/libwarpx.${lib_suffix}.${mod_ext}
         )
     endif()
 endfunction()
@@ -289,7 +314,7 @@ function(get_source_version NAME SOURCE_DIR)
         execute_process(COMMAND git describe --abbrev=12 --dirty --always --tags
             WORKING_DIRECTORY ${SOURCE_DIR}
             OUTPUT_VARIABLE _tmp)
-        string( STRIP ${_tmp} _tmp)
+        string( STRIP "${_tmp}" _tmp)
     endif()
 
     # Is there a CMake project version?
@@ -323,7 +348,12 @@ function(warpx_print_summary)
         message("     python: ${CMAKE_INSTALL_PYTHONDIR}")
     endif()
     message("")
-    message("  Build type: ${CMAKE_BUILD_TYPE}")
+    set(BLD_TYPE_UNKNOWN "")
+    if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR AND
+       NOT CMAKE_BUILD_TYPE IN_LIST CMAKE_CONFIGURATION_TYPES)
+        set(BLD_TYPE_UNKNOWN " (unknown type, check warning)")
+    endif()
+    message("  Build type: ${CMAKE_BUILD_TYPE}${BLD_TYPE_UNKNOWN}")
     set(LIB_TYPE "")
     if(WarpX_LIB)
         if(BUILD_SHARED_LIBS)
@@ -333,8 +363,6 @@ function(warpx_print_summary)
         endif()
     endif()
     #message("  Testing: ${BUILD_TESTING}")
-    #message("  Invasive Tests: ${WarpX_USE_INVASIVE_TESTS}")
-    #message("  Internal VERIFY: ${WarpX_USE_VERIFY}")
     message("  Build options:")
     message("    APP: ${WarpX_APP}")
     message("    ASCENT: ${WarpX_ASCENT}")
@@ -348,12 +376,12 @@ function(warpx_print_summary)
     if(MPI)
         message("    MPI (thread multiple): ${WarpX_MPI_THREAD_MULTIPLE}")
     endif()
-    message("    Parser depth: ${WarpX_PARSER_DEPTH}")
     message("    PSATD: ${WarpX_PSATD}")
     message("    PRECISION: ${WarpX_PRECISION}")
     message("    OPENPMD: ${WarpX_OPENPMD}")
     message("    QED: ${WarpX_QED}")
     message("    LLG: ${WarpX_MAG_LLG}")
     message("    QED table generation: ${WarpX_QED_TABLE_GEN}")
+    message("    SENSEI: ${WarpX_SENSEI}")
     message("")
 endfunction()

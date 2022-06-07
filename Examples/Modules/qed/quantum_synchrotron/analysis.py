@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#!/usr/bin/env python3
 
 # Copyright 2019 Luca Fedeli, Maxence Thevenet
 #
@@ -8,15 +8,17 @@
 
 # -*- coding: utf-8 -*-
 
-import yt
-import numpy as np
+import os
 import sys
-import scipy.special as spe
+
+import numpy as np
 import scipy.integrate as integ
+import scipy.special as spe
 import scipy.stats as st
+import yt
+
 sys.path.insert(1, '../../../../warpx/Regression/Checksum/')
 import checksumAPI
-
 import matplotlib.pyplot as plt
 
 # This script performs detailed checks of the Quantum Synchrotron photon emission process.
@@ -92,11 +94,14 @@ def calc_chi_part(p, E, B):
 @np.vectorize
 def IC_inner_alternative(y):
     ff = lambda x : np.exp(-y*(1+(4*x**2)/3)*np.sqrt(1+x*x/3))*(9+36*x**2 + 16*x**4)/(3 + 4*x**2)/np.sqrt(1+(x**2)/3)
+    # This integration may not converge in some cases, in which case a python warning message can
+    # be issued. This is probably not a significant issue for this test case and these warnings can
+    # be ignored.
     return integ.quad(ff, 0, np.inf)[0]/np.sqrt(3)
 
 def IC_Y(chi_ele, xi):
     div = (chi_ele*(1-xi))
-    div = np.where(np.logical_and(xi < 1, chi_ele != 0), div, 1.0);
+    div = np.where(np.logical_and(xi < 1, chi_ele != 0), div, 1.0)
     res = (2/3)*np.where(np.logical_and(xi < 1, chi_ele != 0), xi/div, np.inf)
     return res
 
@@ -155,9 +160,9 @@ def get_spec(ytdata, specname, is_photon):
     w = ytdata[specname,"particle_weighting"].v
 
     if (is_photon):
-        opt = ytdata[specname,"particle_optical_depth_BW"].v
+        opt = ytdata[specname,"particle_opticalDepthBW"].v
     else:
-        opt = ytdata[specname,"particle_optical_depth_QSR"].v
+        opt = ytdata[specname,"particle_opticalDepthQSR"].v
 
     return {"px" : px, "py" : py, "pz" : pz, "w" : w, "opt" : opt}
 
@@ -186,7 +191,9 @@ def check_momenta(phot_data, p_phot, p0):
 def check_opt_depths(part_data, phot_data):
     data = (part_data, phot_data)
     for dd in data:
-        loc, scale = st.expon.fit(dd["opt"])
+        # Remove the negative optical depths that will be
+        # reset at the beginning of the next timestep
+        loc, scale = st.expon.fit(dd["opt"][dd["opt"] > 0])
         assert( np.abs(loc - 0) < tol_red )
         assert( np.abs(scale - 1) < tol_red )
     print("  [OK] optical depth distributions are still exponential")
@@ -246,14 +253,18 @@ def check():
     data_set_end = yt.load(filename_end)
 
     sim_time = data_set_end.current_time.to_value()
+    # no particles can be created on the first timestep so we have 2 timesteps in the test case,
+    # with only the second one resulting in particle creation
+    dt = sim_time/2.
+
     all_data_end = data_set_end.all_data()
 
     for idx in range(4):
         part_name = spec_names[idx]
         phot_name  = spec_names_phot[idx]
         t_pi        = initial_momenta[idx]
-        pm = boris(t_pi,-sim_time*0.5,csign[idx])
-        p0 = boris(pm,sim_time*1.0,csign[idx])
+        pm = boris(t_pi,-dt*0.5,csign[idx])
+        p0 = boris(pm,dt*1.0,csign[idx])
 
         p2_part = p0[0]**2 + p0[1]**2 + p0[2]**2
         energy_part = np.sqrt(mec2**2 + p2_part*c**2)
@@ -264,7 +275,7 @@ def check():
         print("  initial momentum: ", t_pi)
         print("  quantum parameter: {:f}".format(chi_part))
         print("  normalized particle energy: {:f}".format(gamma_part))
-        print("  timestep: {:f} fs".format(sim_time*1e15))
+        print("  timestep: {:f} fs".format(dt*1e15))
 
         part_data_final = get_spec(all_data_end, part_name, is_photon=False)
         phot_data = get_spec(all_data_end, phot_name, is_photon=True)
@@ -275,7 +286,7 @@ def check():
 
         n_phot = check_number_of_photons(data_set_end,
                               part_name, phot_name,
-                              chi_part, gamma_part, sim_time,
+                              chi_part, gamma_part, dt,
                               initial_particle_number)
 
         check_weights(part_data_final, phot_data)
@@ -288,7 +299,7 @@ def check():
 
         print("*************\n")
 
-    test_name = filename_end[:-9] # Could also be os.path.split(os.getcwd())[1]
+    test_name = os.path.split(os.getcwd())[1]
     checksumAPI.evaluate_checksum(test_name, filename_end)
 
 def main():

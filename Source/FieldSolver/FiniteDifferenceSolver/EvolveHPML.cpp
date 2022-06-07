@@ -16,9 +16,11 @@
 #endif
 #include "BoundaryConditions/PMLComponent.H"
 #include <AMReX_Gpu.H>
+#include <AMReX_MultiFab.H>
 #include <AMReX.H>
 
 using namespace amrex;
+#ifndef WARPX_DIM_RZ
 #ifdef WARPX_MAG_LLG
 /**
  * \brief Update the H field, over one timestep
@@ -32,7 +34,7 @@ void FiniteDifferenceSolver::EvolveHPML (
    // Select algorithm (The choice of algorithm is a runtime option,
    // but we compile code for each algorithm, using templates)
 #ifdef WARPX_DIM_RZ
-    amrex::ignore_unused(Hfield, Efield, dt);
+    amrex::ignore_unused(Hfield, Efield, dt, dive_cleaning);
     amrex::Abort("PML are not implemented in cylindrical geometry.");
 #else
     if (m_do_nodal) {
@@ -54,8 +56,6 @@ void FiniteDifferenceSolver::EvolveHPML (
 }
 
 
-#ifndef WARPX_DIM_RZ
-
 template<typename T_Algo>
 void FiniteDifferenceSolver::EvolveHPMLCartesian (
     std::array< amrex::MultiFab*, 3 > Hfield,
@@ -64,7 +64,7 @@ void FiniteDifferenceSolver::EvolveHPMLCartesian (
     const bool dive_cleaning) {
 
     // Loop through the grids, and over the tiles within each grid
-#ifdef _OPENMP
+#ifdef AMREX_USE_OMP
 #pragma omp parallel if (amrex::Gpu::notInLaunchRegion())
 #endif
     for ( MFIter mfi(*Hfield[0], TilingIfNotGPU()); mfi.isValid(); ++mfi ) {
@@ -164,6 +164,5 @@ void FiniteDifferenceSolver::EvolveHPMLCartesian (
 
 }
 
-#endif // corresponds to ifndef WARPX_DIM_RZ
-
 #endif // corresponds to ifdef WARPX_MAG_LLG
+#endif // corresponds to ifndef WARPX_DIM_RZ

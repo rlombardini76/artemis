@@ -7,15 +7,15 @@
 #ifndef WARPX_amrex_qed_wrapper_commons_h_
 #define WARPX_amrex_qed_wrapper_commons_h_
 
-/**
+/*
  * This header contains some common #define directives
  * used by the QED library wrappers and related
  * components.
  */
 
 #include <AMReX_AmrCore.H>
-#include <AMReX_GpuQualifiers.H>
 #include <AMReX_Extension.H>
+#include <AMReX_GpuQualifiers.H>
 
 /**
  * PICSAR uses PXRMP_GPU to decorate methods which should be

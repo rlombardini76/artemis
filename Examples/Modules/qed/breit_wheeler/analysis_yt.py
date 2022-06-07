@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#!/usr/bin/env python3
 # Copyright 2019 Luca Fedeli
 #
 # This file is part of WarpX.
@@ -7,13 +7,14 @@
 
 # -*- coding: utf-8 -*-
 
-
+import os
 import sys
-import yt
-sys.path.insert(1, '../../../../warpx/Regression/Checksum/')
-import checksumAPI
 
+import yt
+
+sys.path.insert(1, '../../../../warpx/Regression/Checksum/')
 import analysis_core as ac
+import checksumAPI
 
 # This script is a frontend for the analysis routines
 # in analysis_core.py (please refer to this file for
@@ -28,6 +29,9 @@ def main():
 
     # get simulation time
     sim_time = data_set_end.current_time.to_value()
+    # no particles can be created on the first timestep so we have 2 timesteps in the test case,
+    # with only the second one resulting in particle creation
+    dt = sim_time/2.
 
     # get particle data
     all_data_end = data_set_end.all_data()
@@ -44,15 +48,15 @@ def main():
         data["w"] = all_data_end[spec_name,"particle_weighting"].v
 
         if is_photon :
-            data["opt"] =  all_data_end[spec_name,"particle_optical_depth_BW"].v
+            data["opt"] =  all_data_end[spec_name, "particle_opticalDepthBW"].v
         else:
-            data["opt"] = all_data_end[spec_name,"particle_optical_depth_QSR"].v
+            data["opt"] = all_data_end[spec_name, "particle_opticalDepthQSR"].v
 
         particle_data[spec_name] = data
 
-    ac.check(sim_time, particle_data)
+    ac.check(dt, particle_data)
 
-    test_name = filename_end[:-9] # Could also be os.path.split(os.getcwd())[1]
+    test_name = os.path.split(os.getcwd())[1]
     checksumAPI.evaluate_checksum(test_name, filename_end)
 
 if __name__ == "__main__":

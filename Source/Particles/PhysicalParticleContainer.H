@@ -10,24 +10,29 @@
 #ifndef WARPX_PhysicalParticleContainer_H_
 #define WARPX_PhysicalParticleContainer_H_
 
+#include "Evolve/WarpXDtType.H"
 #include "Initialization/PlasmaInjector.H"
-#include "WarpXParticleContainer.H"
-#include "Filter/NCIGodfreyFilter.H"
 #include "Particles/ElementaryProcess/Ionization.H"
-#include "Particles/Gather/ScaleFields.H"
-
 #ifdef WARPX_QED
-#    include "Particles/ElementaryProcess/QEDInternals/QuantumSyncEngineWrapper.H"
-#    include "Particles/ElementaryProcess/QEDInternals/BreitWheelerEngineWrapper.H"
-#    include "Particles/ElementaryProcess/QEDInternals/QedChiFunctions.H"
-
 #    include "Particles/ElementaryProcess/QEDPairGeneration.H"
 #    include "Particles/ElementaryProcess/QEDPhotonEmission.H"
+#    include "Particles/ElementaryProcess/QEDInternals/QuantumSyncEngineWrapper_fwd.H"
+#    include "Particles/ElementaryProcess/QEDInternals/BreitWheelerEngineWrapper_fwd.H"
 #endif
+#include "Particles/Gather/ScaleFields.H"
+#include "Particles/Resampling/Resampling.H"
+#include "WarpXParticleContainer.H"
 
-#include <AMReX_IArrayBox.H>
+#include <AMReX_GpuContainers.H>
+#include <AMReX_Particles.H>
+#include <AMReX_REAL.H>
+#include <AMReX_RealBox.H>
 
-#include <map>
+#include <AMReX_BaseFwd.H>
+#include <AMReX_AmrCoreFwd.H>
+
+#include <memory>
+#include <string>
 
 /**
  * PhysicalParticleContainer is the ParticleContainer class containing plasma
@@ -62,6 +67,10 @@ public:
 
     virtual void InitData () override;
 
+    virtual void ReadHeader (std::istream& is) override;
+
+    virtual void WriteHeader (std::ostream& os) const override;
+
     void InitIonizationModule ();
 
     /**
@@ -92,6 +101,7 @@ public:
      * \param t current physical time
      * \param dt time step by which particles are advanced
      * \param a_dt_type type of time step (used for sub-cycling)
+     * \param skip_deposition Skip the charge and current deposition.
      *
      * Evolve iterates over particle iterator (each box) and performs filtering,
      * field gather, particle push and current deposition for all particles
@@ -130,7 +140,7 @@ public:
                          amrex::FArrayBox const * bxfab,
                          amrex::FArrayBox const * byfab,
                          amrex::FArrayBox const * bzfab,
-                         const amrex::IntVect ngE, const int /*e_is_nodal*/,
+                         const amrex::IntVect ngEB, const int /*e_is_nodal*/,
                          const long offset,
                          const long np_to_push,
                          int lev, int gather_lev,
@@ -152,11 +162,7 @@ public:
                         WarpXParIter& pti,
                         int const lev,
                         amrex::iMultiFab const* current_masks,
-                        amrex::iMultiFab const* gather_masks,
-                        RealVector& uxp,
-                        RealVector& uyp,
-                        RealVector& uzp,
-                        RealVector& wp );
+                        amrex::iMultiFab const* gather_masks );
 
     virtual void PostRestart () final {}
 
@@ -164,7 +170,7 @@ public:
 
     IonizationFilterFunc getIonizationFunc (const WarpXParIter& pti,
                                             int lev,
-                                            amrex::IntVect ngE,
+                                            amrex::IntVect ngEB,
                                             const amrex::FArrayBox& Ex,
                                             const amrex::FArrayBox& Ey,
                                             const amrex::FArrayBox& Ez,
@@ -186,6 +192,13 @@ public:
      * but its boundaries need not be aligned with the actual cells of the simulation)
     */
     void AddPlasma (int lev, amrex::RealBox part_realbox = amrex::RealBox());
+
+    /**
+     * Create new macroparticles for this species, with a fixed
+     * number of particles per cell in a plane.
+     * @param[in] dt time step size, used to partially advance the particles
+    */
+    void AddPlasmaFlux (amrex::Real dt);
 
     void MapParticletoBoostedFrame (amrex::Real& x, amrex::Real& y, amrex::Real& z,
                                     amrex::Real& ux, amrex::Real& uy, amrex::Real& uz);
@@ -221,6 +234,12 @@ public:
         const amrex::Real t_lab, const amrex::Real dt,
         DiagnosticParticles& diagnostic_particles) final;
 
+    /** Convert particle momentum to/from SI
+     *
+     * @see particlesConvertUnits
+     *
+     * @param convert_dir convert to or from SI
+     */
     virtual void ConvertUnits (ConvertDirection convert_dir) override;
 
 /**
@@ -280,7 +299,6 @@ public:
     * \brief This function determines if resampling should be done for the current species, and
     * if so, performs the resampling.
     *
-    * @param[in] resampler the Resampling object used for resampling.
     * @param[in] timestep the current timestep.
     */
     void resample (const int timestep) override final;
@@ -333,11 +351,15 @@ protected:
     // particle and the time of the boosted frame.
     bool boost_adjust_transverse_positions = false;
     bool do_backward_propagation = false;
+    bool m_rz_random_theta = true;
 
     Resampling m_resampler;
 
     // Inject particles during the whole simulation
     void ContinuousInjection (const amrex::RealBox& injection_box) override;
+
+    // Continuously inject a flux of particles from a defined surface
+    void ContinuousFluxInjection (const amrex::Real t, const amrex::Real dt) override;
 
     //This function return true if the PhysicalParticleContainer contains electrons
     //or positrons, false otherwise
@@ -345,6 +367,9 @@ protected:
     //When true PhysicalParticleContainer tries to use a pusher including
     //radiation reaction
     bool do_classical_radiation_reaction = false;
+
+    // A flag to enable saving of the previous timestep positions
+    bool m_save_previous_position = false;
 
 #ifdef WARPX_QED
     // A flag to enable quantum_synchrotron process for leptons
@@ -359,6 +384,14 @@ protected:
     // A smart pointer to an instance of a Breit Wheeler engine [photons only!]
     std::shared_ptr<BreitWheelerEngine> m_shr_p_bw_engine;
 #endif
+    /* Vector of user-defined integer attributes for species, species_name */
+    std::vector<std::string> m_user_int_attribs;
+    /* Vector of user-defined real attributes for species, species_name */
+    std::vector<std::string> m_user_real_attribs;
+    /* Vector of user-defined parser for initializing user-defined integer attributes */
+    std::vector< std::unique_ptr<amrex::Parser> > m_user_int_attrib_parser;
+    /* Vector of user-defined parser for initializing user-defined real attributes */
+    std::vector< std::unique_ptr<amrex::Parser> > m_user_real_attrib_parser;
 
 };
 

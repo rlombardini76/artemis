@@ -4,49 +4,37 @@
  *
  * License: BSD-3-Clause-LBNL
  */
+#include "FieldSolver/SpectralSolver/SpectralAlgorithms/SpectralBaseAlgorithm.H"
+#include "FieldSolver/SpectralSolver/SpectralFieldData.H"
+#include "SpectralAlgorithms/PsatdAlgorithmComoving.H"
+#include "SpectralAlgorithms/PsatdAlgorithmPml.H"
+#include "SpectralAlgorithms/PsatdAlgorithm.H"
+#include "SpectralAlgorithms/PsatdAlgorithmJLinearInTime.H"
 #include "SpectralKSpace.H"
 #include "SpectralSolver.H"
-#include "SpectralAlgorithms/PsatdAlgorithm.H"
-#include "SpectralAlgorithms/PMLPsatdAlgorithm.H"
-#include "SpectralAlgorithms/ComovingPsatdAlgorithm.H"
-#include "WarpX.H"
 #include "Utils/WarpXProfilerWrapper.H"
-#include "Utils/WarpXUtil.H"
 
 #include <memory>
 
 #if WARPX_USE_PSATD
 
-/* \brief Initialize the spectral Maxwell solver
- *
- * This function selects the spectral algorithm to be used, allocates the
- * corresponding coefficients for the discretized field update equation,
- * and prepares the structures that store the fields in spectral space.
- *
- * \param norder_x Order of accuracy of the spatial derivatives along x
- * \param norder_y Order of accuracy of the spatial derivatives along y
- * \param norder_z Order of accuracy of the spatial derivatives along z
- * \param nodal    Whether the solver is applied to a nodal or staggered grid
- * \param dx       Cell size along each dimension
- * \param dt       Time step
- * \param pml      Whether the boxes in which the solver is applied are PML boxes
- * \param periodic_single_box Whether the full simulation domain consists of a single periodic box (i.e. the global domain is not MPI parallelized)
- */
 SpectralSolver::SpectralSolver(
                 const int lev,
                 const amrex::BoxArray& realspace_ba,
                 const amrex::DistributionMapping& dm,
                 const int norder_x, const int norder_y,
                 const int norder_z, const bool nodal,
-                const amrex::Array<amrex::Real,3>& v_galilean,
-                const amrex::Array<amrex::Real,3>& v_comoving,
+                const amrex::IntVect& fill_guards,
+                const amrex::Vector<amrex::Real>& v_galilean,
+                const amrex::Vector<amrex::Real>& v_comoving,
                 const amrex::RealVect dx, const amrex::Real dt,
                 const bool pml, const bool periodic_single_box,
                 const bool update_with_rho,
                 const bool fft_do_time_averaging,
+                const bool do_multi_J,
                 const bool dive_cleaning,
-                const bool divb_cleaning) {
-
+                const bool divb_cleaning)
+{
     // Initialize all structures using the same distribution mapping dm
 
     // - Initialize k space object (Contains info about the size of
@@ -54,40 +42,60 @@ SpectralSolver::SpectralSolver(
     // as well as the value of the corresponding k coordinates)
     const SpectralKSpace k_space= SpectralKSpace(realspace_ba, dm, dx);
 
+    m_spectral_index = SpectralFieldIndex(update_with_rho, fft_do_time_averaging,
+                                          do_multi_J, dive_cleaning, divb_cleaning, pml);
+
     // - Select the algorithm depending on the input parameters
     //   Initialize the corresponding coefficients over k space
 
-    if (pml) {
-        algorithm = std::make_unique<PMLPsatdAlgorithm>(
-            k_space, dm, norder_x, norder_y, norder_z, nodal, dt, dive_cleaning, divb_cleaning);
+    if (pml) // PSATD equations in the PML grids
+    {
+        algorithm = std::make_unique<PsatdAlgorithmPml>(
+            k_space, dm, m_spectral_index, norder_x, norder_y, norder_z, nodal,
+            fill_guards, dt, dive_cleaning, divb_cleaning);
     }
-    else {
+    else // PSATD equations in the regulard grids
+    {
         // Comoving PSATD algorithm
-        if (v_comoving[0] != 0. || v_comoving[1] != 0. || v_comoving[2] != 0.) {
-            algorithm = std::make_unique<ComovingPsatdAlgorithm>(
-                k_space, dm, norder_x, norder_y, norder_z, nodal, v_comoving, dt, update_with_rho);
+        if (v_comoving[0] != 0. || v_comoving[1] != 0. || v_comoving[2] != 0.)
+        {
+            algorithm = std::make_unique<PsatdAlgorithmComoving>(
+                k_space, dm, m_spectral_index, norder_x, norder_y, norder_z, nodal,
+                fill_guards, v_comoving, dt, update_with_rho);
         }
-        // PSATD algorithms: standard, Galilean, or averaged Galilean
-        else {
-            algorithm = std::make_unique<PsatdAlgorithm>(
-                k_space, dm, norder_x, norder_y, norder_z, nodal, v_galilean, dt, update_with_rho, fft_do_time_averaging);
+        else // PSATD algorithms: standard, Galilean, averaged Galilean, multi-J
+        {
+            if (do_multi_J)
+            {
+                algorithm = std::make_unique<PsatdAlgorithmJLinearInTime>(
+                    k_space, dm, m_spectral_index, norder_x, norder_y, norder_z, nodal,
+                    fill_guards, dt, fft_do_time_averaging, dive_cleaning, divb_cleaning);
+            }
+            else // standard, Galilean, averaged Galilean
+            {
+                algorithm = std::make_unique<PsatdAlgorithm>(
+                    k_space, dm, m_spectral_index, norder_x, norder_y, norder_z, nodal,
+                    fill_guards, v_galilean, dt, update_with_rho, fft_do_time_averaging,
+                    dive_cleaning, divb_cleaning);
+            }
         }
     }
 
     // - Initialize arrays for fields in spectral space + FFT plans
-    field_data = SpectralFieldData( lev, realspace_ba, k_space, dm,
-                    algorithm->getRequiredNumberOfFields(), periodic_single_box);
+    field_data = SpectralFieldData(lev, realspace_ba, k_space, dm,
+                                   m_spectral_index.n_fields, periodic_single_box);
 
+    m_fill_guards = fill_guards;
 }
 
 void
-SpectralSolver::ForwardTransform( const int lev,
+SpectralSolver::ForwardTransform (const int lev,
                                   const amrex::MultiFab& mf,
                                   const int field_index,
-                                  const int i_comp )
+                                  const int i_comp)
 {
     WARPX_PROFILE("SpectralSolver::ForwardTransform");
-    field_data.ForwardTransform( lev, mf, field_index, i_comp );
+    field_data.ForwardTransform(lev, mf, field_index, i_comp);
 }
 
 void
@@ -97,7 +105,7 @@ SpectralSolver::BackwardTransform( const int lev,
                                    const int i_comp )
 {
     WARPX_PROFILE("SpectralSolver::BackwardTransform");
-    field_data.BackwardTransform( lev, mf, field_index, i_comp );
+    field_data.BackwardTransform(lev, mf, field_index, i_comp, m_fill_guards);
 }
 
 void

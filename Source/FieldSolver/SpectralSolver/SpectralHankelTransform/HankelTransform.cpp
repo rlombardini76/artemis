@@ -4,10 +4,12 @@
  *
  * License: BSD-3-Clause-LBNL
  */
-#include "WarpX.H"
-
 #include "HankelTransform.H"
+
 #include "BesselRoots.H"
+#include "Utils/TextMsg.H"
+#include "Utils/WarpXConst.H"
+#include "WarpX.H"
 
 #include <blas.hh>
 #include <lapack.hh>
@@ -22,7 +24,7 @@ HankelTransform::HankelTransform (int const hankel_order,
 {
 
     // Check that azimuthal_mode has a valid value
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(hankel_order-1 <= azimuthal_mode && azimuthal_mode <= hankel_order+1,
+    WARPX_ALWAYS_ASSERT_WITH_MESSAGE(hankel_order-1 <= azimuthal_mode && azimuthal_mode <= hankel_order+1,
                                      "azimuthal_mode must be either hankel_order-1, hankel_order or hankel_order+1");
 
     amrex::Vector<amrex::Real> alphas;

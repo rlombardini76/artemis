@@ -7,19 +7,31 @@
 #ifndef WARPX_quantum_sync_engine_wrapper_h_
 #define WARPX_quantum_sync_engine_wrapper_h_
 
-#include "QedWrapperCommons.H"
+#include "BreitWheelerEngineWrapper_fwd.H"
+
 #include "QedChiFunctions.H"
+#include "QedWrapperCommons.H"
 #include "Utils/WarpXConst.H"
 
-#include <AMReX_Array.H>
+#include <AMReX_Extension.H>
+#include <AMReX_GpuContainers.H>
+#include <AMReX_GpuQualifiers.H>
+#include <AMReX_REAL.H>
+#include <AMReX_Random.H>
 #include <AMReX_Vector.H>
-#include <AMReX_Gpu.H>
 
-#include <picsar_qed/physics/quantum_sync/quantum_sync_engine_tables.hpp>
+#include <picsar_qed/containers/picsar_array.hpp>
+#include <picsar_qed/math/cmath_overloads.hpp>
+#include <picsar_qed/math/vec_functions.hpp>
+#include <picsar_qed/physics/phys_constants.h>
 #include <picsar_qed/physics/quantum_sync/quantum_sync_engine_core.hpp>
+#include <picsar_qed/physics/quantum_sync/quantum_sync_engine_tables.hpp>
+#include <picsar_qed/physics/unit_conversion.hpp>
 
-#include <string>
+#include <cmath>
 #include <vector>
+
+namespace amrex { struct RandomEngine; }
 
 // Aliases =============================
 using QS_dndt_table_params =
@@ -69,8 +81,7 @@ public:
      * Constructor does nothing because optical depth initialization
      * does not require control parameters or lookup tables.
      */
-    QuantumSynchrotronGetOpticalDepth ()
-    {}
+    QuantumSynchrotronGetOpticalDepth () = default;
 
     /**
      * () operator is just a thin wrapper around a very simple function to
@@ -99,7 +110,7 @@ public:
     /**
      * Default constructor: it leaves the functor in a non-initialized state.
      */
-    QuantumSynchrotronEvolveOpticalDepth (){}
+    QuantumSynchrotronEvolveOpticalDepth () = default;
 
     /**
      * Constructor to be used to initialize the functor.
@@ -172,7 +183,7 @@ public:
     /**
      * Default constructor: it leaves the functor in a non-initialized state.
      */
-    QuantumSynchrotronPhotonEmission (){}
+    QuantumSynchrotronPhotonEmission () = default;
 
     /**
      * Constructor acquires pointers to control parameters and
@@ -265,7 +276,7 @@ public:
     /**
      * Constructor requires no arguments.
      */
-    QuantumSynchrotronEngine ();
+    QuantumSynchrotronEngine () = default;
 
     /**
      * Builds the functor to initialize the optical depth
