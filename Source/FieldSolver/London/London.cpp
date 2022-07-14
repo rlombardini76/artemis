@@ -112,6 +112,10 @@ London::EvolveLondonJ (amrex::Real dt)
                 amrex::Real const mu_interp = CoarsenIO::Interp(mu_arr, mu_stag, jx_stag,
                                                                 macro_cr, i, j, k, scomp);
                 jx_arr(i,j,k) += dt * lambda_sq_inv/mu_interp * Ex_arr(i,j,k);
+		if ( i == 16 and j == 16 and k == 81) {
+                    amrex::AllPrintToFile("FieldOutputa") << warpx.getistep(0) << " " << warpx.gett_new(0) << " " << dt << "(i,j,k) : " << 16 << "," << 16 << "," << 81 << " jx " << jx_arr(i,j,k) << " Ex " << Ex_arr(i,j,k) << "\n";
+               }
+
             }
         },
         [=] AMREX_GPU_DEVICE (int i, int j, int k) {
