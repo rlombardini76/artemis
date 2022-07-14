@@ -104,6 +104,7 @@ London::EvolveLondonJ (amrex::Real dt)
         amrex::Box const& tjy = mfi.tilebox(jy->ixType().toIntVect());
         amrex::Box const& tjz = mfi.tilebox(jz->ixType().toIntVect());
 
+       amrex::AllPrintToFile("FieldOutputb") << warpx.getistep(0) << " " << warpx.gett_new(0) << " " << dt << "(i,j,k) : " << 16 << "," << 16 << "," << 81 << " jx " << jx_arr(16,16,81) << " Ex " << Ex_arr(16,16,81) << "\n";
 
     amrex::ParallelFor(tjx, tjy, tjz,
         [=] AMREX_GPU_DEVICE (int i, int j, int k) {
