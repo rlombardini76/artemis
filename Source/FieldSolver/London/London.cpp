@@ -104,7 +104,7 @@ London::EvolveLondonJ (amrex::Real dt)
         amrex::Box const& tjy = mfi.tilebox(jy->ixType().toIntVect());
         amrex::Box const& tjz = mfi.tilebox(jz->ixType().toIntVect());
 
-       amrex::AllPrintToFile("FieldOutputb") << warpx.getistep(0) << " " << warpx.gett_new(0) << " " << dt << "(i,j,k) : " << 16 << "," << 16 << "," << 81 << " jx " << jx_arr(16,16,81) << " Ex " << Ex_arr(16,16,81) << "\n";
+       amrex::AllPrintToFile("FieldOutputb") << warpx.getistep(0) << " " << warpx.gett_new(0) << " " << dt << "(i,j,k) : " << 16 << "," << 16 << "," << 81 << " jy " << jy_arr(16,16,81) << " Ey " << Ey_arr(16,16,81) << "\n";
 
     amrex::ParallelFor(tjx, tjy, tjz,
         [=] AMREX_GPU_DEVICE (int i, int j, int k) {
@@ -112,10 +112,6 @@ London::EvolveLondonJ (amrex::Real dt)
                 amrex::Real const mu_interp = CoarsenIO::Interp(mu_arr, mu_stag, jx_stag,
                                                                 macro_cr, i, j, k, scomp);
                 jx_arr(i,j,k) += dt * lambda_sq_inv/mu_interp * Ex_arr(i,j,k);
-		if ( i == 16 and j == 16 and k == 81) {
-                    amrex::AllPrintToFile("FieldOutputa") << warpx.getistep(0) << " " << warpx.gett_new(0) << " " << dt << "(i,j,k) : " << 16 << "," << 16 << "," << 81 << " jx " << jx_arr(i,j,k) << " Ex " << Ex_arr(i,j,k) << "\n";
-               }
-
             }
         },
         [=] AMREX_GPU_DEVICE (int i, int j, int k) {
@@ -133,6 +129,10 @@ London::EvolveLondonJ (amrex::Real dt)
             }
         }
     );
+    const int i = 16;
+    const int j = 16;
+    const int k = 81;
+    amrex::AllPrintToFile("FieldOutputa") << warpx.getistep(0) << " " << warpx.gett_new(0) << " " << dt << "(i,j,k) : " << i << "," << j << "," << k << " jy " << jy_arr(i,j,k) << " Ey " << Ey_arr(i,j,k) << "\n";
     }
 
 }
